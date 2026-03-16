@@ -1,6 +1,6 @@
 
 * **Guide = 概念架構**
-* **[V6] = 目前實作(v6為新版本)**()
+* **[V6] = 目前實作(v6為新版本)**(https://github.com/yuru1231/TriScale-LEO/blob/7c4cf77bb3fb1afe91a4a88fc8fe559f44b74eb9/Topology%20%26%20ISL%20Routing/codes/v6_isl-leo-candidate.cc)
 * **Gap = 後續研究**
 
 ---
