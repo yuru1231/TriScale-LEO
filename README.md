@@ -1,6 +1,6 @@
 # SNS3 預先排程路由架構 — Guide
 
-> 只記當前有效的設計與接口。歷史決策與修改原因見 `Decisions/`。
+> 只記當前有效的設計與接口。歷史決策與修改原因見 `decisions/`。
 
 ---
 
@@ -92,6 +92,23 @@ for (auto& entry : routingTable[satId])
 ```
 
 注意：排程內不可呼叫 `CreateObject<SatIslArbiterUnicast>()`，會觸發 fatal。詳見 `decisions/DEC-003-arbiter-lifecycle.md`。
+
+### `BuildISLGraph()` 效能注意事項
+
+位置計算必須在迴圈外預先快取，不可在 ISL 邊迴圈內逐次呼叫：
+
+```cpp
+// 正確：一次性快取所有衛星位置
+std::vector<Vector> pos(m_numSatellites);
+for (uint32_t i = 0; i < m_numSatellites; i++)
+    pos[i] = m_orbNodes[i]->GetObject<SatSGP4MobilityModel>()
+                           ->GetGeoPositionAt(tau_k).ToVector();
+// 之後 ISL 邊迴圈直接用 pos[a], pos[b]
+```
+
+`PrecomputeAllTables` 中以滾動快取傳遞 `graphNext`，避免重複建圖：
+- 錯誤做法：每輪獨立呼叫，10 個 slot 實際建圖 19 次
+- 正確做法：`graphNext` 以 `std::move` 成為下輪 `graphCurr`，只建 10 次
 
 ### `UpdateLoadCosts()` 實作
 
@@ -216,9 +233,10 @@ std::map<Time, RoutingTableSnapshot> m_precomputedTables;
 | 檔案 | 修改內容 | 狀態 |
 |------|---------|------|
 | `satellite-sgp4-mobility-model.h/.cc` | 新增 `GetGeoPositionAt(Time t)` | ✅ 完成 |
-| `contrib/satellite/helper/isl-graph.h/.cc` | `LoadISLDefs`、`BuildISLGraph` | ✅ 完成 |
+| `contrib/satellite/helper/isl-graph.h/.cc` | `LoadISLDefs`、`BuildISLGraph`、`ComputeBaseRoutes`、`ApplyTiebreaker`；v3 效能優化（位置快取、滾動圖、O(1) 第一跳、unordered_set） | ✅ 完成 |
 | `satellite-isl-arbiter-unicast.h` | 新增 `ClearNextHopEntries()` | ✅ 完成 |
-| `satellite/helper/satellite-routing-helper.h/.cc` | `PrecomputeAllTables`、`InitOrbiterDevices`、`ScheduleRoutingUpdates`、`ApplyRoutingTable` | ✅ 完成 |
+| `contrib/satellite/helper/isl-graph.cc` | `UpdateLoadCosts`、`HasSignificantChange`、`RecomputeAffectedRoutes`、`RebuildIslSources`、`GetLinkQueueDelay`、`BuildISLGraphWithLoad`；`ApplyRoutingTable` 改為 `ClearNextHopEntries`（DEC-003） | ✅ 完成 |
+| `contrib/satellite/helper/isl-graph.h` | `m_loadCosts`、`m_prevLoadCosts`、`m_islSources`、`m_arbiters`、`m_edgeOfPair`、`m_lastRecomputeTime`、`SlotStats` | ✅ 完成 |
 | `scratch/my-simulation.cc` | 整合全部模組，加入實際流量 | ⏳ 待完成 |
 
 ---
