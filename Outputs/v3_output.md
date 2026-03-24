@@ -31,3 +31,4 @@ ApplyRoutingTable: slot=10 t=600s done
 Wall time: 2760s
 === Simulation complete ===
 ```
+> Wall 2760s / Sim 630s ≈ 4.38× — 代表模擬比真實時間慢 4 倍多，屬於偏慢。
