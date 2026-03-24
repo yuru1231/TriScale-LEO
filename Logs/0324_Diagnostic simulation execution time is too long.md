@@ -25,7 +25,7 @@ Total scheduled events processed: 4294967295
 
 **根本原因**：SNS3 的 DVB MAC beam scheduler 持續產生排程事件。66 顆衛星各自有 forward + return link scheduler，superframe 週期約 250ms，200s 模擬時間內產生的排程事件量遠超 ISL 本身的事件量。這不是 `PrecomputeAllTables` 或 `BuildISLGraph` 的問題，而是 SNS3 beam scheduler 的固有開銷。
 
-→ 詳細決策見 [`Decisions/DEC-004-beam-scheduler-overhead.md`]()
+→ 詳細決策見 [`Decisions/DEC-004-beam-scheduler-overhead.md`](https://github.com/yuru1231/TriScale-LEO/blob/8ee31479861df5c837d454db0d01c16d7880c7b8/Decisions/04_Beam%20Scheduler.md)
 
 ---
 
