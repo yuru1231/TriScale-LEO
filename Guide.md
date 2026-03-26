@@ -34,13 +34,40 @@
 
 ## 2. 三層架構
 
-| Layer | 職責 | 執行時機 |
-|------|------|---------|
-| Layer 1：離線預計算 | 批次計算 10 個時間點的拓樸與基礎路由表 | `Simulator::Run()` 之前，只執行一次 |
-| Layer 2：執行期微調 | 讀取 device queue，判斷是否需要微調 Dijkstra | 每 60s，由 `Simulator::Schedule` 觸發 |
-| Layer 3：封包轉發 | 封包到達節點後查 Arbiter 轉發 | 隨時，SNS3 Arbiter 機制處理 |
+### 2.1 系統級三層（由大到小的時間維度）
 
-Layer 1 與 Layer 2 的接口：`map<Time, RoutingTableSnapshot>`，Layer 1 填好後 Layer 2 只讀不寫。
+| Layer | 職責 | 時間維度 | 執行時機 |
+|------|------|---------|---------|
+| **Layer 1：ISL Routing** | FT pair 篩選 + 衛星間最短路由 | 分鐘級（60s slot） | 離線預計算；執行期每 60s 套用 |
+| **Layer 2：Beam Hopping** | 決定特定衛星在可視時間內的 beam 服務順序 | Superframe 級（250ms） | 離線預計算排程；執行期每 superframe 觸發 |
+| **Layer 3：QoS Scheduling** | 在給定 beam 服務時間內對 UE 做 priority + WFQ 排程 | 封包級 | SNS3 `SatBeamScheduler` 原生處理 |
+
+### 2.2 Layer 1 內部子層（ISL Routing 模組原有設計）
+
+| 子層 | 職責 | 執行時機 |
+|------|------|---------|
+| 離線預計算 | 批次計算各時間點的拓樸與基礎路由表 | `Simulator::Run()` 之前 |
+| 執行期微調 | 讀取 device queue，判斷是否需要微調 Dijkstra | 每 60s，`Simulator::Schedule` 觸發 |
+| 封包轉發 | 封包到達節點後查 Arbiter 轉發 | 隨時，SNS3 Arbiter 機制處理 |
+
+### 2.3 層間接口
+
+```
+Layer 1 (IslRoutingManager)
+  → 輸出：m_tables[slotIndex][satId] → vector<RouteEntry>
+  → FtVisibilityFilter 讀取 GetRouteCost(entry, exit, slot) 做篩選
+
+Layer 1 extension (FtVisibilityFilter)
+  → 輸出：GetBestTransit(ftI, ftJ, slot) → FtTransitRoute{entrySat, exitSat, cost}
+  → 告知 Layer 2 哪些衛星是 contracted path 上的 transit nodes
+
+Layer 2 (BeamHoppingManager)
+  → 輸出：BhEvent{t, satId, cellId} 序列
+  → GetCurrentCell(satId) 供 Layer 3 context 使用
+
+Layer 3 (SNS3 native)
+  → 讀取 GetCurrentCell()，在對應 beam 的服務時間內依 QoS 優先序排程
+```
 
 ---
 
@@ -228,20 +255,64 @@ std::map<Time, RoutingTableSnapshot> m_precomputedTables;
 
 ---
 
-## 9. 需要修改的程式位置
+## 9. 程式檔案狀態
+
+### Layer 1：ISL Routing
 
 | 檔案 | 修改內容 | 狀態 |
 |------|---------|------|
 | `satellite-sgp4-mobility-model.h/.cc` | 新增 `GetGeoPositionAt(Time t)` | ✅ 完成 |
+<<<<<<< ours
 | `contrib/satellite/helper/isl-graph.h/.cc` | `LoadISLDefs`、`BuildISLGraph`、`ComputeBaseRoutes`、`ApplyTiebreaker`；v3 效能優化（位置快取、滾動圖、O(1) 第一跳、unordered_set） | ✅ 完成 |
 | `satellite-isl-arbiter-unicast.h` | 新增 `ClearNextHopEntries()` | ✅ 完成 |
 | `contrib/satellite/helper/isl-graph.cc` | `UpdateLoadCosts`、`HasSignificantChange`、`RecomputeAffectedRoutes`、`RebuildIslSources`、`GetLinkQueueDelay`、`BuildISLGraphWithLoad`；`ApplyRoutingTable` 改為 `ClearNextHopEntries`（DEC-003） | ✅ 完成 |
 | `contrib/satellite/helper/isl-graph.h` | `m_loadCosts`、`m_prevLoadCosts`、`m_islSources`、`m_arbiters`、`m_edgeOfPair`、`m_lastRecomputeTime`、`SlotStats` | ✅ 完成 |
 | `scratch/my-simulation.cc` | 整合全部模組，加入實際流量 | ⏳ 待完成 |
+=======
+| `isl-graph.h/.cc`（v4） | 完整 ISL routing，load-aware，tiebreaker | ✅ 完成 |
+| `isl-graph.h`（v4 新增） | `GetNumTimeSlots()`、`GetNumSatellites()`、`GetTimeSlotInterval()`、`GetRouteCost()` | ✅ 完成 |
+| `satellite-isl-arbiter-unicast.h` | `ClearNextHopEntries()` | ✅ 完成 |
+
+### Layer 1 extension：FT Visibility Filter
+
+| 檔案 | 內容 | 狀態 |
+|------|------|------|
+| `ft-filter.h` | `FtDef`、`FtTransitRoute`、`FtVisibilityFilter` 介面 | ✅ 完成 |
+| `ft-filter.cc` | `PrecomputeVisibility()`、`GetAccessSats()`、`GetBestTransit()`、`ComputeElevationDeg()` | ✅ 完成 |
+
+### Layer 2：Beam Hopping Manager
+
+| 檔案 | 內容 | 狀態 |
+|------|------|------|
+| `beam-hopping-manager.h` | `CellDef`、`BhEvent`、`TrafficDemandProvider`、`BhSwitchCallback`、`BeamHoppingManager` 介面 | ✅ 完成 |
+| `beam-hopping-manager.cc` | `ComputeBhSchedule()`（離線）、`ScheduleBhUpdates()`（執行期）、`ApplyBhEvent()`（SNS3 注入點 TODO） | ✅ 架構完成，SNS3 注入點待確認 |
+
+### Layer 3：QoS（純配置）
+
+| 位置 | 內容 | 狀態 |
+|------|------|------|
+| `v5_test-iridium.cc` `ConfigureQoS()` | Class A (CRA)、Class B (RBDC)、Class C (VBDC) SNS3 attribute config | ✅ 架構完成，attribute 路徑待驗證 |
+
+### 整合測試
+
+| 檔案 | 內容 | 狀態 |
+|------|------|------|
+| `v5_test-iridium.cc` | 三層完整整合，FT 台灣/日本/美國，4 個台灣 cell | ✅ 完成（BH 注入點 stub） |
+>>>>>>> theirs
 
 ---
 
-## 10. 擴充點（預留）
+## 10. 待確認事項（blocking）
 
-- **BH 整合**：修改點只有 `BuildISLGraph()` 中讀取 `beamStatus` 的邏輯
-- **增量更新**：修改點只有 `ApplyRoutingTable()` 改為 diff-based 寫入
+| 項目 | 說明 | 位置 |
+|------|------|------|
+| **SNS3 BH 注入 API** | `ApplyBhEvent()` 需要呼叫正確的 SNS3 method 切換 beam。候選：`SatOrbiterFeederMac`、`SatBeamScheduler`、或 `SatBeamHelper` 動態 enable/disable | `beam-hopping-manager.cc` 標記 `TODO SNS3_BH_INJECT` |
+| **台灣 beam ID** | `v5_test-iridium.cc` 目前用 `SetBeamSet({1})`，需從 scenario 資料確認涵蓋台灣（25°N 121°E）的 beam ID | `v5_test-iridium.cc` 標記 `TODO BH` |
+| **Layer 3 QoS attribute 路徑** | `SatLowerLayerServiceConf::DaService*` 的 attribute key 需對照安裝的 SNS3 版本確認 | `v5_test-iridium.cc` `ConfigureQoS()` |
+| **TrafficDemandProvider 實作** | 目前用 `UniformDemandProvider`（均勻分配）。真實流量輸入介面已預留，待 LEO topo 完成後接入 | `beam-hopping-manager.h` `TrafficDemandProvider` 介面 |
+
+## 11. 擴充點（預留）
+
+- **增量更新**：`ApplyRoutingTable()` 改為 diff-based 寫入
+- **真實流量輸入**：實作 `TrafficDemandProvider`，從 UE queue 或外部預測資料注入 cell demand
+- **多 FT 負載平衡**：`GetBestTransit()` 可擴充為考慮 FT 當前負載的多路由選擇
