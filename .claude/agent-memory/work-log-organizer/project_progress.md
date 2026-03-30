@@ -1,5 +1,5 @@
 ---
-name: Project Progress State as of 2026-03-26
+name: Project Progress State as of 2026-03-27
 description: Current development state per layer and known next steps
 type: project
 ---
@@ -15,11 +15,22 @@ Layer 1 (ISL Routing / Topology) — Status: v5 complete, archived, and document
 - Layer1.md complete architecture document created (2026-03-26)
 - Active DEC records: DEC-001, DEC-002, DEC-003, DEC-004
 
-Layer 2 (Beam Hopping Controller) — Status: module built, standalone validation planned
-- BeamHoppingManager background run confirmed (64 BH events, 66 satellites, no ISL interference)
-- beam-hopping-manager.cc/.h archived to both Layer 1 (static tools) and Layer 2 (main impl)
-- Layer2.md created as draft (content to be filled)
-- Next step (2026-03-27): confirm SNS3 BH inject API (TODO SNS3_BH_INJECT), build standalone BH_test.cc
+Layer 2 (Beam Hopping Controller) — Status: Phase 1 fully implemented and verified (2026-03-27)
+- Phase 1 core modules all implemented and passing e2e simulation (300s, no crash):
+  - sat-bh-time-plan.h/.cc: BHTP data model, Validate/PrettyPrint/ToCsv
+  - sat-bh-metrics.h/.cc: KPI collection, T_p=503ms periodic CSV flush, FinalFlush
+  - sat-bh-helper.h/.cc: BhExperimentConfig (OOP, no hard-code), feature flag arch
+- Phase 2 stubs complete (interface ready, impl pending):
+  - sat-bh-scheduler.h/.cc: EM algorithm skeleton (E-step/M-step, cluster grouping)
+  - sat-bh-obc.h/.cc: OBC state machine (IDLE/ACTIVE/SWITCHING/WAIT_PLAN)
+- Phase 3 stubs complete (interface ready, impl pending):
+  - sat-gw-cache-queue.h/.cc: Q_max=40MB, TAIL_DROP policy
+  - sat-bh-precoder.h/.cc: MMSE W=H^H(HH^H+σ²I)^{-1}, Cholesky
+- sat-bh-example.cc: unified example script, verified Phase 1 default run
+- Static BHTP output: 19 slots, 503ms period, K=2, beam dwell correct
+- Outputs: bh-metrics.csv, bh-timeplan.csv, bh-attributes.xml confirmed generated
+- Layer2.md: draft exists, content fill still needed
+- Next step (2026-03-27 afternoon): Phase 2 SatBhScheduler EM implementation; confirm SNS3 hook availability (GwMac::Tx trace, ChannelEstimation trace)
 
 Layer 3 (QoS-Aware Packet Scheduler) — Status: not yet started
 - Layer3.md placeholder created (2026-03-26)

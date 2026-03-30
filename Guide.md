@@ -24,7 +24,7 @@
 | 參數 | 數值 |
 |------|------|
 | Scenario | `constellation-iridium-66-sats-fixed` |
-| 衛星數量 | 66 顆 |
+| 衛星數量 | 66 顆（6 軌道面 × 11 顆） |
 | 軌道高度 | 780 km，傾角 86.4° |
 | ISL 數量 | 132 條（每顆衛星 4 條） |
 | 模擬時長 | 600 秒 |
@@ -39,7 +39,7 @@
 | Layer | 職責 | 時間維度 | 執行時機 |
 |------|------|---------|---------|
 | **Layer 1：ISL Routing** | FT pair 篩選 + 衛星間最短路由 | 分鐘級（60s slot） | 離線預計算；執行期每 60s 套用 |
-| **Layer 2：Beam Hopping** | 決定特定衛星在可視時間內的 beam 服務順序 | Superframe 級（250ms） | 離線預計算排程；執行期每 superframe 觸發 |
+| **Layer 2：Beam Hopping** | BHTP-based 多 beam 動態調度（K=3 同時活動），EM 需求估算 + 虛擬流量排程 | DVB-S2X super-frame 級（T_s=26.5ms，T_p=503ms） | NCC 端排程；OBC 端每 slot 切換 |
 | **Layer 3：QoS Scheduling** | 在給定 beam 服務時間內對 UE 做 priority + WFQ 排程 | 封包級 | SNS3 `SatBeamScheduler` 原生處理 |
 
 ### 2.2 Layer 1 內部子層（ISL Routing 模組原有設計）
@@ -50,7 +50,21 @@
 | 執行期微調 | 讀取 device queue，判斷是否需要微調 Dijkstra | 每 60s，`Simulator::Schedule` 觸發 |
 | 封包轉發 | 封包到達節點後查 Arbiter 轉發 | 隨時，SNS3 Arbiter 機制處理 |
 
-### 2.3 層間接口
+### 2.3 Layer 2 內部子系統（Beam Hopping 正式架構）
+
+正式 BH 架構為 7 模組協作，以 BHTP（Beam Hopping Time Plan）為核心資料模型：
+
+| 模組 | 位置 | 核心職責 |
+|------|------|---------|
+| `SatBhTimePlan` | 資料模型 | 儲存完整 BHTP 週期與 slot 配置（beamIds, radius, modcod, clusterIds） |
+| `SatBhScheduler` | NCC 側 | EM 需求估算、虛擬流量計算、beam scheduling、cluster 分組、輸出 BHTP |
+| `SatBhObc` | 衛星側 | 接收 BHTP、執行 beam switching 狀態機（IDLE/ACTIVE/SWITCHING/WAIT_PLAN） |
+| `SatGwCacheQueue` | Gateway 側 | beam inactive 時暫存封包（最大 40 MB/beam），slot 開始時排空 |
+| `SatBhPrecoder` | Gateway 側 | cluster 條件成立時做 MMSE 預編碼（W = H^H(HH^H + σ²I)^-1） |
+| `SatBhMetrics` | 被動監測 | 被動收集 throughput / delay / JFI / drop rate 等 KPI |
+| `SatBhHelper` | 安裝入口 | 統一安裝所有模組並接好 trace/hook |
+
+### 2.4 層間接口
 
 ```
 Layer 1 (IslRoutingManager)
@@ -61,12 +75,12 @@ Layer 1 extension (FtVisibilityFilter)
   → 輸出：GetBestTransit(ftI, ftJ, slot) → FtTransitRoute{entrySat, exitSat, cost}
   → 告知 Layer 2 哪些衛星是 contracted path 上的 transit nodes
 
-Layer 2 (BeamHoppingManager)
-  → 輸出：BhEvent{t, satId, cellId} 序列
-  → GetCurrentCell(satId) 供 Layer 3 context 使用
+Layer 2 (SatBhScheduler / SatBhObc)
+  → 輸出：SatBhTimePlan → BhSlotEntry{beamIds, startTime, duration, beamRadius, modcod, clusterIds}
+  → SatBhMetrics 被動收集各 slot 的 KPI
 
 Layer 3 (SNS3 native)
-  → 讀取 GetCurrentCell()，在對應 beam 的服務時間內依 QoS 優先序排程
+  → 讀取 SatBeamScheduler 設定，在對應 beam 的服務時間內依 QoS 優先序排程
 ```
 
 ---
@@ -161,6 +175,25 @@ for (uint32_t j = 0; j < islDevs.size(); j++) {
 }
 ```
 
+### Layer 2 BH 核心時間參數
+
+| 符號 | 定義 | 數值 |
+|------|------|------|
+| `T_sf` | DVB-S2X Super-frame | 26.5 ms |
+| `T_s` | BH Time Slot | 26.5 ms |
+| `T_p` | BHTP period | 503 ms |
+| `T_sw` | beam switching time | 2 ms |
+| `T_prop` | 指令下發延遲 | 10 ms（建議） |
+| `K` | 同時活動 beam 數 | 3（預設） |
+
+### BH 非侵入式擴充原則
+
+所有新增模組不得修改 SNS3 原生程式碼，互動只能透過：
+- `TraceSource / TraceCallback`
+- `Object::AggregateObject()`
+- `Config::ConnectWithoutContext()`
+- `ObjectFactory + TypeId`
+
 ---
 
 ## 4. ISL 連接條件
@@ -174,6 +207,8 @@ for (uint32_t j = 0; j < islDevs.size(); j++) {
 ---
 
 ## 5. Cost Function
+
+### Layer 1：ISL Routing
 
 ```
 total_cost = α × propagation_cost + β × load_cost
@@ -191,9 +226,24 @@ load_cost        = queue_packets × packet_size / bandwidth  （執行期讀取�
 
 第一階段 `load_cost` 初始為 0，cost 等同純傳播延遲。
 
+### Layer 2：BH 虛擬流量
+
+```
+A_{p,j} = L_{p,j} × α × (1 + 1 / T_{p,j})   // 單封包虛擬流量
+A_j = Σ_p A_{p,j}                              // 小區總虛擬流量
+```
+
+| 參數 | 說明 | 建議值 |
+|------|------|------|
+| `α` | delay sensitivity factor | 2（初始） |
+| `T_{p,j}` | 封包剩餘 TTL（slot 計） | — |
+| `κ` | 干擾 cluster 合併門檻 | 0.08 |
+
 ---
 
 ## 6. 執行順序
+
+### Layer 1（ISL Routing）
 
 ```
 1. 建立節點 + 安裝 InternetStack
@@ -210,9 +260,20 @@ load_cost        = queue_packets × packet_size / bandwidth  （執行期讀取�
 
 應用層從 t=1s 開始，確保 `ApplyTable(0)` 先於封包發送執行。
 
+### Layer 2（Beam Hopping）
+
+```
+Phase 1: SatBhTimePlan + SatBhMetrics
+Phase 2: SatBhScheduler（EM only）+ SatBhObc（單衛星固定 BHTP）
+Phase 3: SatGwCacheQueue + SatBhPrecoder
+Phase 4: SatBhScheduler（完整） + SatBhHelper（統一安裝）
+```
+
 ---
 
 ## 7. 資料結構
+
+### Layer 1
 
 ```cpp
 struct ISLState {
@@ -243,9 +304,29 @@ struct RoutingTableSnapshot {
 std::map<Time, RoutingTableSnapshot> m_precomputedTables;
 ```
 
+### Layer 2
+
+```cpp
+struct BhSlotEntry {
+    std::vector<uint32_t> beamIds;   // 本 slot 同時活動的 beam（最多 K 個）
+    Time startTime;
+    Time duration;
+    BeamSize beamRadius;             // SMALL/MIDDLE/LARGE
+    uint32_t modcod;
+    std::vector<uint32_t> clusterIds;
+};
+
+struct SatBhTimePlan {
+    uint32_t planId;
+    Time periodStart;
+    Time periodEnd;
+    std::vector<BhSlotEntry> slots;
+};
+```
+
 ---
 
-## 8. 執行期震盪抑制
+## 8. 執行期震盪抑制（Layer 1）
 
 | 機制 | 設定 |
 |------|------|
@@ -262,30 +343,29 @@ std::map<Time, RoutingTableSnapshot> m_precomputedTables;
 | 檔案 | 修改內容 | 狀態 |
 |------|---------|------|
 | `satellite-sgp4-mobility-model.h/.cc` | 新增 `GetGeoPositionAt(Time t)` | ✅ 完成 |
-<<<<<<< ours
-| `contrib/satellite/helper/isl-graph.h/.cc` | `LoadISLDefs`、`BuildISLGraph`、`ComputeBaseRoutes`、`ApplyTiebreaker`；v3 效能優化（位置快取、滾動圖、O(1) 第一跳、unordered_set） | ✅ 完成 |
 | `satellite-isl-arbiter-unicast.h` | 新增 `ClearNextHopEntries()` | ✅ 完成 |
-| `contrib/satellite/helper/isl-graph.cc` | `UpdateLoadCosts`、`HasSignificantChange`、`RecomputeAffectedRoutes`、`RebuildIslSources`、`GetLinkQueueDelay`、`BuildISLGraphWithLoad`；`ApplyRoutingTable` 改為 `ClearNextHopEntries`（DEC-003） | ✅ 完成 |
-| `contrib/satellite/helper/isl-graph.h` | `m_loadCosts`、`m_prevLoadCosts`、`m_islSources`、`m_arbiters`、`m_edgeOfPair`、`m_lastRecomputeTime`、`SlotStats` | ✅ 完成 |
-| `scratch/my-simulation.cc` | 整合全部模組，加入實際流量 | ⏳ 待完成 |
-=======
-| `isl-graph.h/.cc`（v4） | 完整 ISL routing，load-aware，tiebreaker | ✅ 完成 |
-| `isl-graph.h`（v4 新增） | `GetNumTimeSlots()`、`GetNumSatellites()`、`GetTimeSlotInterval()`、`GetRouteCost()` | ✅ 完成 |
-| `satellite-isl-arbiter-unicast.h` | `ClearNextHopEntries()` | ✅ 完成 |
+| `v5_isl-graph.h/.cc` | 完整 ISL routing，load-aware，tiebreaker；`GetNumTimeSlots()`、`GetNumSatellites()`、`GetTimeSlotInterval()`、`GetRouteCost()` | ✅ 完成 |
 
-### Layer 1 extension：FT Visibility Filter
+### Layer 1 Extension：FT Visibility Filter
 
 | 檔案 | 內容 | 狀態 |
 |------|------|------|
 | `ft-filter.h` | `FtDef`、`FtTransitRoute`、`FtVisibilityFilter` 介面 | ✅ 完成 |
 | `ft-filter.cc` | `PrecomputeVisibility()`、`GetAccessSats()`、`GetBestTransit()`、`ComputeElevationDeg()` | ✅ 完成 |
 
-### Layer 2：Beam Hopping Manager
+### Layer 2：Beam Hopping（正式架構，7 模組）
 
 | 檔案 | 內容 | 狀態 |
 |------|------|------|
-| `beam-hopping-manager.h` | `CellDef`、`BhEvent`、`TrafficDemandProvider`、`BhSwitchCallback`、`BeamHoppingManager` 介面 | ✅ 完成 |
-| `beam-hopping-manager.cc` | `ComputeBhSchedule()`（離線）、`ScheduleBhUpdates()`（執行期）、`ApplyBhEvent()`（SNS3 注入點 TODO） | ✅ 架構完成，SNS3 注入點待確認 |
+| `sat-bh-time-plan.h/.cc` | `SatBhTimePlan`、`BhSlotEntry` 資料模型 | ⏳ Phase 1 |
+| `sat-bh-metrics.h/.cc` | `SatBhMetrics` 被動 KPI 收集，CSV 輸出 | ⏳ Phase 1 |
+| `sat-bh-scheduler.h/.cc` | `SatBhScheduler`：EM 估算、虛擬流量、beam scheduling、cluster 分組 | ⏳ Phase 2–4 |
+| `sat-bh-obc.h/.cc` | `SatBhObc`：BHTP 接收、beam switching 狀態機 | ⏳ Phase 2 |
+| `sat-gw-cache-queue.h/.cc` | `SatGwCacheQueue`：beam inactive 暫存、slot start dequeue | ⏳ Phase 3 |
+| `sat-bh-precoder.h/.cc` | `SatBhPrecoder`：MMSE 預編碼（cluster ≥ 2 beam 時啟動） | ⏳ Phase 3 |
+| `sat-bh-helper.h/.cc` | `SatBhHelper`：統一安裝入口，trace/hook 連線，feature flag | ⏳ Phase 4 |
+
+> 舊版 `beam-hopping-manager.h/.cc` 保留作 Phase 0 prototype validator，不作為正式架構。
 
 ### Layer 3：QoS（純配置）
 
@@ -297,8 +377,7 @@ std::map<Time, RoutingTableSnapshot> m_precomputedTables;
 
 | 檔案 | 內容 | 狀態 |
 |------|------|------|
-| `v5_test-iridium.cc` | 三層完整整合，FT 台灣/日本/美國，4 個台灣 cell | ✅ 完成（BH 注入點 stub） |
->>>>>>> theirs
+| `v5_test-iridium.cc` | Layer 1 + FT filter 完整整合，FT 台灣/日本/美國，4 個台灣 cell | ✅ 完成（BH 為 stub） |
 
 ---
 
@@ -306,13 +385,97 @@ std::map<Time, RoutingTableSnapshot> m_precomputedTables;
 
 | 項目 | 說明 | 位置 |
 |------|------|------|
-| **SNS3 BH 注入 API** | `ApplyBhEvent()` 需要呼叫正確的 SNS3 method 切換 beam。候選：`SatOrbiterFeederMac`、`SatBeamScheduler`、或 `SatBeamHelper` 動態 enable/disable | `beam-hopping-manager.cc` 標記 `TODO SNS3_BH_INJECT` |
+| **BH Hook 點可行性** | `DaRequestReceived`、`SlotAllocated`、`GwMac::Tx/Rx`、`ChannelEstimation`、`HandoverCompleted` 是否存在、路徑與 callback 簽章是否匹配；若不存在需記錄 fallback | Layer 2 Phase 1 之前 |
+| **SNS3 BH 注入 API** | `SatBhObc` 切換 beam 需要呼叫正確的 SNS3 method。候選：`SatOrbiterFeederMac`、`SatBeamScheduler`、或 `SatBeamHelper` 動態 enable/disable | `sat-bh-obc.cc` |
 | **台灣 beam ID** | `v5_test-iridium.cc` 目前用 `SetBeamSet({1})`，需從 scenario 資料確認涵蓋台灣（25°N 121°E）的 beam ID | `v5_test-iridium.cc` 標記 `TODO BH` |
 | **Layer 3 QoS attribute 路徑** | `SatLowerLayerServiceConf::DaService*` 的 attribute key 需對照安裝的 SNS3 版本確認 | `v5_test-iridium.cc` `ConfigureQoS()` |
-| **TrafficDemandProvider 實作** | 目前用 `UniformDemandProvider`（均勻分配）。真實流量輸入介面已預留，待 LEO topo 完成後接入 | `beam-hopping-manager.h` `TrafficDemandProvider` 介面 |
+
+---
 
 ## 11. 擴充點（預留）
 
 - **增量更新**：`ApplyRoutingTable()` 改為 diff-based 寫入
-- **真實流量輸入**：實作 `TrafficDemandProvider`，從 UE queue 或外部預測資料注入 cell demand
+- **真實流量輸入**：實作 `SatBhScheduler::OnDemandReceived`，從 UE queue 或外部預測資料注入 cell demand
 - **多 FT 負載平衡**：`GetBestTransit()` 可擴充為考慮 FT 當前負載的多路由選擇
+- **MMSE 全量開啟**：`SatBhHelper::EnableMMSEPrecoding(true)`，對所有 cluster size ≥ 2 的 slot 啟動
+
+---
+
+## 12. 已知問題
+
+### Beam Scheduler 開銷（DEC-004）
+
+**現象**：simTime=630s 的模擬 wall time 約 2760s（≈4.38× 放大）
+
+**原因**：SNS3 DVB MAC beam scheduler 持續產生排程事件（66 顆衛星 × forward+return × superframe 250ms），即使沒有使用者流量也會產生大量事件。
+
+**現況**：`PrecomputeAllTables` 僅 2ms，瓶頸完全在 `Simulator::Run`。
+
+**待評估的優化方向**：
+- 降低 superframe 週期（250ms → 更長）
+- 關閉未使用 beam 的 scheduler（只開 beam 1 等）
+
+---
+
+## 13. 設計決策參考
+
+| 決策 | 文件 |
+|------|------|
+| Arbiter 機制取代 IP 層路由 | `Decisions/01_Arbiter mechanism replaces IP layer routing.md` |
+| ISL 距離門檻設為 5000 km | `Decisions/02_ISL Distance Threshold.md` |
+| Arbiter 預先建立（非排程內建立） | `Decisions/03_Arbiter lifecycle management.md` |
+| Beam Scheduler 開銷根本原因 | `Decisions/04_Beam Scheduler.md` |
+
+---
+
+## 14. 驗證基準
+
+### Layer 1 v5 Output（simTime=630s, slotInterval=60s）
+
+```
+LoadISLDefs: loaded 132 ISLs
+InitOrbiterDevices: done
+PrecomputeAllTables: start
+  slot=0  t=0s:   SAT0_routes=65  ✓
+  ...
+  slot=11 t=660s: SAT0_routes=65  ✓
+PrecomputeAllTables: complete
+ScheduleRoutingUpdates: 12 events scheduled
+ApplyRoutingTable: slot=0  t=0s   done
+...
+ApplyRoutingTable: slot=11 t=600s done
+```
+
+### Layer 2 BH KPI 目標（正式規格）
+
+| KPI | 目標 |
+|-----|------|
+| throughput 提升 | +1.43% ~ +3.44% |
+| 平均延遲降低 | -35.5% ~ -62.25% |
+| JFI | ≥ 0.90 |
+| dwell utilization | ≥ 85% |
+| drop rate | < 0.5% |
+
+---
+
+## 15. 版本對應
+
+### Layer 1
+
+| 版本 | 主要內容 |
+|------|----------|
+| v1 | non-OOP 原型，全域函式，驗證基本路由流程 |
+| v2 | OOP 重構為 `IslRoutingManager`，NS3 Attribute 機制 |
+| v3 | 效能優化 Fix 1–4，`UpdateLoadCosts` / `HasSignificantChange` / `RecomputeAffectedRoutes` 實作 |
+| v4 | 計時拆解，確認效能瓶頸在 `Simulator::Run`，`BuildISLGraphWithLoad` 加入 |
+| v5 | 新增 `ft-filter.h/.cc`（FtVisibilityFilter），新增 Layer 2/3 accessor（GetRouteCost 等），整合三層測試 |
+
+### Layer 2
+
+| Phase | 主要內容 |
+|-------|----------|
+| Phase 0 | `beam-hopping-manager.h/.cc`：簡化 prototype（dwell + switch），保留作 validator |
+| Phase 1 | `SatBhTimePlan` + `SatBhMetrics`：資料模型 + 被動 KPI |
+| Phase 2 | `SatBhScheduler`（EM only）+ `SatBhObc`（單衛星） |
+| Phase 3 | `SatGwCacheQueue` + `SatBhPrecoder` |
+| Phase 4 | `SatBhScheduler`（完整）+ `SatBhHelper`（統一安裝）+ 全規模整合 |
