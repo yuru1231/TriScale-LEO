@@ -134,7 +134,7 @@ SatBhHelper::Install()
     NS_LOG_INFO("SatBhHelper::Install() — configuring BH system\n"
                 << "  Phase 1 (TimePlan + Metrics): ACTIVE\n"
                 << "  Phase 2 (Scheduler + OBC):   "
-                << (m_cfg.enableScheduler || m_cfg.enableObc ? "ACTIVE (stub)" : "disabled") << "\n"
+                << (m_cfg.enableScheduler || m_cfg.enableObc ? "ACTIVE" : "disabled") << "\n"
                 << "  Phase 3 (CacheQueue + MMSE): "
                 << (m_cfg.enableCacheQueue || m_cfg.enablePrecoder ? "ACTIVE (stub)" : "disabled"));
 
@@ -163,12 +163,14 @@ SatBhHelper::Install()
     m_metrics->SetWarmUpTime(Seconds(m_cfg.warmUpSec));
 
     // ── Phase 2 setup ─────────────────────────────────────────────────────
-
-    if (m_cfg.enableScheduler)
-        SetupScheduler();
+    // OBC must be created BEFORE Scheduler so SetupScheduler() can wire its
+    // plan-ready callback directly to the already-constructed m_obc object.
 
     if (m_cfg.enableObc)
         SetupObc();
+
+    if (m_cfg.enableScheduler)
+        SetupScheduler();
 
     // ── Phase 3 setup ─────────────────────────────────────────────────────
 
@@ -359,9 +361,9 @@ SatBhHelper::ApplySyntheticSlot()
 void
 SatBhHelper::SetupScheduler()
 {
-    // TODO Phase 2: create SatBhScheduler, configure attributes from m_cfg,
-    //               register BhPlanReadyCallback → SetupObc/OBC::ReceiveNewPlan
-    NS_LOG_INFO("SatBhHelper::SetupScheduler [STUB — Phase 2 not yet implemented]");
+    // Phase 2: create SatBhScheduler, configure attributes from m_cfg,
+    // and wire the plan-ready callback to SatBhObc::ReceiveNewPlan.
+    NS_LOG_INFO("SatBhHelper::SetupScheduler (Phase 2 active)");
 
     m_scheduler = CreateObject<SatBhScheduler>();
     m_scheduler->SetAttribute("NumBeams",          UintegerValue(m_cfg.numBeams));
@@ -385,9 +387,9 @@ SatBhHelper::SetupScheduler()
 void
 SatBhHelper::SetupObc()
 {
-    // TODO Phase 2: create SatBhObc, set callbacks to Metrics + CacheQueue,
-    //               connect BeamActivate → DequeueAll, BeamDeactivate → Metrics
-    NS_LOG_INFO("SatBhHelper::SetupObc [STUB — Phase 2 not yet implemented]");
+    // Phase 2: create SatBhObc, configure attributes, and wire beam callbacks
+    // to SatBhMetrics. Phase 3 will additionally wire to SatGwCacheQueue.
+    NS_LOG_INFO("SatBhHelper::SetupObc (Phase 2 active)");
 
     m_obc = CreateObject<SatBhObc>();
     m_obc->SetSatId(m_cfg.satId);

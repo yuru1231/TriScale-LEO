@@ -182,7 +182,7 @@ class SatBhScheduler : public Object
     /// Virtual traffic A_n per beam (output of ComputeVirtualTraffic)
     std::vector<double> m_virtualTraffic;
 
-    /// Cluster assignment: beamId → clusterId
+    /// Cluster assignment: beamId → clusterId (0-indexed internally)
     std::map<uint32_t, uint32_t> m_clusterMap;
 
     /// Monotonically increasing plan ID
@@ -193,6 +193,31 @@ class SatBhScheduler : public Object
 
     /// Callback invoked after each successful scheduling cycle
     BhPlanReadyCallback m_planReadyCb;
+
+    // ── Phase 2 additions ─────────────────────────────────────────────────
+
+    /// Per-beam counter of consecutive demand changes above DemandChangeThreshold.
+    /// Two consecutive changes trigger an early rescheduling cycle (spec Section 6.1).
+    std::vector<uint32_t> m_consecutiveChanges;
+
+    /// Pre-computed hexagonal grid beam positions (x, y) in km, 0-indexed.
+    /// Used by ComputeInterferenceFactor() to estimate ω_{i,j}.
+    /// Populated on first call to InitBeamPositions().
+    std::vector<std::pair<double, double>> m_beamPositions;
+
+    // ── Private Phase 2 helpers ───────────────────────────────────────────
+
+    /// Compute M = round(T_p / T_s) — number of time slots per BHTP period.
+    uint32_t ComputeM() const;
+
+    /// Pre-compute hexagonal grid beam positions for numBeams beams.
+    /// Supports ring-0 (1 beam), ring-1 (7 beams), ring-2 (19 beams).
+    /// For N > 19, remaining beams are placed on a third ring.
+    void InitBeamPositions();
+
+    /// Single-shot method called by Simulator::Schedule from ScheduleNextCycle().
+    /// Runs a scheduling cycle then re-schedules itself after T_p.
+    void RunAndReschedule();
 };
 
 } // namespace ns3
