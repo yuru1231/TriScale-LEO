@@ -23,6 +23,7 @@
 #include "ns3/uinteger.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 
@@ -204,6 +205,18 @@ SatBhHelper::Install()
                             &SatBhScheduler::ScheduleNextCycle, m_scheduler);
     }
 
+    // ── Start synthetic demand driver (Phase 2, until ConnectTraces is done) ──
+    // Feeds Scheduler::OnDemandReceived() with per-beam sinusoidal demand every T_s.
+    // Hotspot beams get ~3× higher base demand than non-hotspot beams, with different
+    // phase offsets per beam so EM sees decorrelated inputs.
+    // This driver is a placeholder until Phase 4 wires real SNS3 DaRequestReceived
+    // trace hooks in ConnectTraces().
+    if (m_cfg.enableScheduler && m_scheduler)
+    {
+        NS_LOG_INFO("SatBhHelper: starting synthetic demand driver (Phase 2)");
+        Simulator::Schedule(Seconds(0.0), &SatBhHelper::ApplySyntheticDemand, this);
+    }
+
     NS_LOG_INFO("SatBhHelper::Install() complete");
 }
 
@@ -356,7 +369,64 @@ SatBhHelper::ApplySyntheticSlot()
     Simulator::Schedule(T_s, &SatBhHelper::ApplySyntheticSlot, this);
 }
 
-// ── Phase 2 setup (stubs) ─────────────────────────────────────────────────
+// ── Phase 2: synthetic demand driver ─────────────────────────────────────────
+//
+// Injects per-beam demand into the Scheduler every T_s so the EM algorithm
+// has non-trivial input data before real SNS3 trace hooks are connected.
+//
+// Demand model (per beam):
+//   base      = hotspot ? 6 : 2   (abstract demand tokens; ratio matters, not absolute)
+//   variation = amplitude × sin(2π × t / T_cycle + phase_b)
+//   amplitude = hotspot ? 2.0 : 0.5
+//   T_cycle   = 60 s  (one slow demand cycle per minute)
+//   phase_b   = b × π/3  (60° offset per beam, prevents lock-step correlation)
+//
+// Result: λ_hotspot ≈ 6 >> λ_non-hotspot ≈ 2, so EM assigns proportionally
+// more slots to hotspot beams, producing a BHTP that differs from Phase 1's
+// static plan (which assigned slots based on hard-coded hotspot index alone).
+//
+// This driver is a placeholder until Phase 4 connects real SNS3 DaRequestReceived
+// trace hooks in ConnectTraces().
+//
+void
+SatBhHelper::ApplySyntheticDemand()
+{
+    // Safety check: stop if Scheduler was destroyed or not yet created
+    if (!m_scheduler)
+        return;
+
+    double nowSec = Simulator::Now().GetSeconds();
+
+    for (uint32_t b = 0; b < m_cfg.numBeams; b++)
+    {
+        uint32_t beamId  = b + 1;  // 1-indexed per SNS3 beam convention
+        bool     hotspot = (beamId <= m_cfg.numHotspotBeams);
+
+        // Base demand: hotspot beams carry ~3× the traffic load of non-hotspot
+        double base      = hotspot ? 6.0 : 2.0;
+        double amplitude = hotspot ? 2.0 : 0.5;
+
+        // Per-beam phase offset (60° spacing) to decorrelate demand signals.
+        // This prevents all beams from changing demand in the same direction
+        // simultaneously, giving EM more informative input to work with.
+        double phaseRad = static_cast<double>(b) * (M_PI / 3.0);
+
+        // Slow sinusoidal variation: one cycle per 60 s
+        double variation = amplitude * std::sin(2.0 * M_PI * nowSec / 60.0 + phaseRad);
+
+        // Clamp to minimum 1 (EM also guards with max(1,...) but be explicit here)
+        uint32_t demand = static_cast<uint32_t>(std::max(1.0, base + variation));
+
+        m_scheduler->OnDemandReceived(beamId, demand);
+    }
+
+    // Re-schedule for the next slot boundary so every T_s produces a demand sample
+    Simulator::Schedule(MilliSeconds(m_cfg.slotDurationMs),
+                        &SatBhHelper::ApplySyntheticDemand,
+                        this);
+}
+
+// ── Phase 2 setup ─────────────────────────────────────────────────────────────
 
 void
 SatBhHelper::SetupScheduler()

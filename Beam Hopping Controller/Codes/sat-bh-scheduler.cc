@@ -232,51 +232,57 @@ SatBhScheduler::OnDemandReceived(uint32_t beamId, uint32_t bytes)
         m_consecutiveChanges.assign(m_numBeams, 0);
     }
 
-    if (beamId >= m_numBeams)
+    // beamId is 1-indexed (SNS3 convention: beam IDs start at 1).
+    // Valid range: 1 .. m_numBeams.  Reject 0 (invalid) and > m_numBeams (out of range).
+    if (beamId == 0 || beamId > m_numBeams)
     {
         NS_LOG_WARN("SatBhScheduler::OnDemandReceived: beamId="
-                    << beamId << " >= numBeams=" << m_numBeams << "; ignored");
+                    << beamId << " out of 1-indexed range [1," << m_numBeams << "]; ignored");
         return;
     }
 
+    // Convert 1-indexed beamId to 0-indexed array subscript used internally.
+    uint32_t idx = beamId - 1;
+
     // Append current observation to history ring buffer
-    m_demandHistory[beamId].push_back(static_cast<double>(bytes));
+    m_demandHistory[idx].push_back(static_cast<double>(bytes));
 
     // Enforce observation window limit: keep at most W × M entries per beam
     uint32_t maxHistory = m_observationWindow * ComputeM();
-    while (m_demandHistory[beamId].size() > maxHistory)
-        m_demandHistory[beamId].erase(m_demandHistory[beamId].begin());
+    while (m_demandHistory[idx].size() > maxHistory)
+        m_demandHistory[idx].erase(m_demandHistory[idx].begin());
 
     // ── Early-trigger detection (spec Section 6.1) ────────────────────────
     // If demand changes by > DemandChangeThreshold for 2 consecutive observations,
     // immediately run a new scheduling cycle rather than waiting for T_p.
-    double prev = m_prevDemand[beamId];
+    double prev = m_prevDemand[idx];
     double curr = static_cast<double>(bytes);
     if (prev > 0.0)
     {
         double changeRatio = std::abs(curr - prev) / prev;
         if (changeRatio > m_demandChangeThreshold)
         {
-            m_consecutiveChanges[beamId]++;
-            if (m_consecutiveChanges[beamId] >= 2)
+            m_consecutiveChanges[idx]++;
+            if (m_consecutiveChanges[idx] >= 2)
             {
                 NS_LOG_INFO("SatBhScheduler::OnDemandReceived: early-trigger beam="
                             << beamId << " change=" << changeRatio);
-                m_consecutiveChanges[beamId] = 0; // Reset; avoid repeated triggers
+                m_consecutiveChanges[idx] = 0; // Reset; avoid repeated triggers
                 RunSchedulingCycle(Simulator::Now());
             }
         }
         else
         {
             // Change within threshold; reset consecutive counter
-            m_consecutiveChanges[beamId] = 0;
+            m_consecutiveChanges[idx] = 0;
         }
     }
-    m_prevDemand[beamId] = curr;
+    m_prevDemand[idx] = curr;
 
     NS_LOG_DEBUG("SatBhScheduler::OnDemandReceived beam=" << beamId
+                 << " (idx=" << idx << ")"
                  << " bytes=" << bytes
-                 << " historySize=" << m_demandHistory[beamId].size());
+                 << " historySize=" << m_demandHistory[idx].size());
 }
 
 // ── Scheduling control ────────────────────────────────────────────────────────

@@ -250,8 +250,7 @@ Progress: 294.00/300.00
 Progress: 297.00/300.00
 
 [BH Example] Simulation complete.
-  KPI metrics  : bh-metrics.csv
+  KPI metrics  : v2_bh-metrics.csv
   BHTP table   : bh-timeplan.csv
   SNS3 stats   : data/
   Attributes   : bh-attributes.xml
-

@@ -165,6 +165,12 @@ class SatBhHelper : public Object
     /// Called every T_s when OBC is disabled (Phase 1 / 1.5).
     void ApplySyntheticSlot();
 
+    /// Synthetic demand driver: injects per-beam demand into the Scheduler every T_s.
+    /// Active when enableScheduler=true but ConnectTraces() has not yet wired real
+    /// SNS3 trace hooks. Makes the EM algorithm work with non-trivial data.
+    /// Replaced by real DaRequestReceived trace hook in Phase 4.
+    void ApplySyntheticDemand();
+
     // ── Phase 2 setup ─────────────────────────────────────────────────────
 
     /// Create SatBhScheduler, configure attributes, connect plan-ready callback.

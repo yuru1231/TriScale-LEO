@@ -263,10 +263,10 @@ A_j = Σ_p A_{p,j}                              // 小區總虛擬流量
 ### Layer 2（Beam Hopping）
 
 ```
-Phase 1: SatBhTimePlan + SatBhMetrics
-Phase 2: SatBhScheduler（EM only）+ SatBhObc（單衛星固定 BHTP）
-Phase 3: SatGwCacheQueue + SatBhPrecoder
-Phase 4: SatBhScheduler（完整） + SatBhHelper（統一安裝）
+✅ Phase 1: SatBhTimePlan + SatBhMetrics（靜態 BHTP + ApplySyntheticSlot 驅動）
+✅ Phase 2: SatBhScheduler（EM only）+ SatBhObc（狀態機）+ ApplySyntheticDemand 注入
+⏳ Phase 3: SatGwCacheQueue + SatBhPrecoder
+⏳ Phase 4: SatBhScheduler（完整）+ SatBhHelper（統一安裝）+ 真實 SNS3 trace 接入
 ```
 
 ---
@@ -357,13 +357,13 @@ struct SatBhTimePlan {
 
 | 檔案 | 內容 | 狀態 |
 |------|------|------|
-| `sat-bh-time-plan.h/.cc` | `SatBhTimePlan`、`BhSlotEntry` 資料模型 | ⏳ Phase 1 |
-| `sat-bh-metrics.h/.cc` | `SatBhMetrics` 被動 KPI 收集，CSV 輸出 | ⏳ Phase 1 |
-| `sat-bh-scheduler.h/.cc` | `SatBhScheduler`：EM 估算、虛擬流量、beam scheduling、cluster 分組 | ⏳ Phase 2–4 |
-| `sat-bh-obc.h/.cc` | `SatBhObc`：BHTP 接收、beam switching 狀態機 | ⏳ Phase 2 |
+| `sat-bh-time-plan.h/.cc` | `SatBhTimePlan`、`BhSlotEntry` 資料模型 | ✅ Phase 1 |
+| `sat-bh-metrics.h/.cc` | `SatBhMetrics` 被動 KPI 收集，CSV 輸出 | ✅ Phase 1 |
+| `sat-bh-scheduler.h/.cc` | `SatBhScheduler`：EM 估算、虛擬流量、beam scheduling、cluster 分組；`OnDemandReceived` 1-indexed 修正（2026-03-31） | ✅ Phase 2 |
+| `sat-bh-obc.h/.cc` | `SatBhObc`：BHTP 接收、beam switching 狀態機（IDLE→ACTIVE→SWITCHING→WAIT_PLAN） | ✅ Phase 2 |
 | `sat-gw-cache-queue.h/.cc` | `SatGwCacheQueue`：beam inactive 暫存、slot start dequeue | ⏳ Phase 3 |
 | `sat-bh-precoder.h/.cc` | `SatBhPrecoder`：MMSE 預編碼（cluster ≥ 2 beam 時啟動） | ⏳ Phase 3 |
-| `sat-bh-helper.h/.cc` | `SatBhHelper`：統一安裝入口，trace/hook 連線，feature flag | ⏳ Phase 4 |
+| `sat-bh-helper.h/.cc` | `SatBhHelper`：統一安裝入口，trace/hook 連線，feature flag；Phase 2 新增 `ApplySyntheticDemand`、修正 OBC/Scheduler 初始化順序 | ✅ Phase 2 active（Phase 3/4 stub 保留） |
 
 > 舊版 `beam-hopping-manager.h/.cc` 保留作 Phase 0 prototype validator，不作為正式架構。
 
@@ -385,8 +385,8 @@ struct SatBhTimePlan {
 
 | 項目 | 說明 | 位置 |
 |------|------|------|
-| **BH Hook 點可行性** | `DaRequestReceived`、`SlotAllocated`、`GwMac::Tx/Rx`、`ChannelEstimation`、`HandoverCompleted` 是否存在、路徑與 callback 簽章是否匹配；若不存在需記錄 fallback | Layer 2 Phase 1 之前 |
-| **SNS3 BH 注入 API** | `SatBhObc` 切換 beam 需要呼叫正確的 SNS3 method。候選：`SatOrbiterFeederMac`、`SatBeamScheduler`、或 `SatBeamHelper` 動態 enable/disable | `sat-bh-obc.cc` |
+| **BH Hook 點可行性** | `DaRequestReceived`、`SlotAllocated`、`GwMac::Tx/Rx`、`ChannelEstimation`、`HandoverCompleted` 是否存在、路徑與 callback 簽章是否匹配；若不存在需記錄 fallback；目前以 `ApplySyntheticDemand` 替代 | Phase 4（`ConnectTraces()` stub 解封前） |
+| **SNS3 BH 注入 API** | Phase 3 `SatGwCacheQueue` 需呼叫正確的 SNS3 method 攔截封包。候選：`SatOrbiterFeederMac`、`GwMac::Tx` trace、或 `SatBeamHelper` 動態 enable/disable | `sat-gw-cache-queue.cc`（Phase 3） |
 | **台灣 beam ID** | `v5_test-iridium.cc` 目前用 `SetBeamSet({1})`，需從 scenario 資料確認涵蓋台灣（25°N 121°E）的 beam ID | `v5_test-iridium.cc` 標記 `TODO BH` |
 | **Layer 3 QoS attribute 路徑** | `SatLowerLayerServiceConf::DaService*` 的 attribute key 需對照安裝的 SNS3 版本確認 | `v5_test-iridium.cc` `ConfigureQoS()` |
 
@@ -456,6 +456,18 @@ ApplyRoutingTable: slot=11 t=600s done
 | dwell utilization | ≥ 85% |
 | drop rate | < 0.5% |
 
+### Layer 2 Phase 2 已驗證輸出（v2.1_bh-metrics.csv，2026-03-31）
+
+| KPI | Phase 2 實測 | 說明 |
+|-----|------------|------|
+| hotspot dwell 分配 | beam1=240ms（+43% vs Phase 1 靜態） | EM 正確分配更多 slot 給 hotspot |
+| 動態調度追蹤 | dwell 跟隨 T_cycle=60s 正弦變化 | beam3 高峰 288ms；各 beam 相位差 60° 可辨識 |
+| 資源守恆 | 每 period 總 slots=38（M×K=19×2） | 無 slot 遺漏或重複 |
+| slot_util_pct | 100% | OBC 正確執行 usable duration（T_s−T_sw=24ms） |
+| throughput / delay / drop_rate | 0（預期） | Phase 3 封包路徑尚未實作，為預期行為 |
+
+> Phase 3（SatGwCacheQueue + SatBhPrecoder）實作後，throughput / delay / drop_rate 才會有真實數值。
+
 ---
 
 ## 15. 版本對應
@@ -472,10 +484,10 @@ ApplyRoutingTable: slot=11 t=600s done
 
 ### Layer 2
 
-| Phase | 主要內容 |
-|-------|----------|
-| Phase 0 | `beam-hopping-manager.h/.cc`：簡化 prototype（dwell + switch），保留作 validator |
-| Phase 1 | `SatBhTimePlan` + `SatBhMetrics`：資料模型 + 被動 KPI |
-| Phase 2 | `SatBhScheduler`（EM only）+ `SatBhObc`（單衛星） |
-| Phase 3 | `SatGwCacheQueue` + `SatBhPrecoder` |
-| Phase 4 | `SatBhScheduler`（完整）+ `SatBhHelper`（統一安裝）+ 全規模整合 |
+| Phase | 主要內容 | 狀態 |
+|-------|----------|------|
+| Phase 0 | `beam-hopping-manager.h/.cc`：簡化 prototype（dwell + switch），保留作 validator | ✅ 完成 |
+| Phase 1 | `SatBhTimePlan` + `SatBhMetrics`：資料模型 + 被動 KPI；`ApplySyntheticSlot` 靜態驅動 | ✅ 完成 |
+| Phase 2 | `SatBhScheduler`（EM only）+ `SatBhObc`（狀態機）+ `ApplySyntheticDemand`；`OnDemandReceived` 1-indexed bug fix | ✅ 完成（v2.1 驗證通過） |
+| Phase 3 | `SatGwCacheQueue` + `SatBhPrecoder`（封包緩衝 + MMSE 預編碼） | ⏳ 待實作 |
+| Phase 4 | `SatBhScheduler`（完整）+ `SatBhHelper`（統一安裝）+ SNS3 trace 接入（`ConnectTraces()`） | ⏳ 待實作 |
