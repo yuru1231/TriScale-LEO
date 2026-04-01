@@ -5,7 +5,7 @@
 ```
 [CHKPT] 0s | Initialize: start
 [CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
-[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs //66*2
 [CHKPT] 0s | InitOrbiterDevices: start
 [CHKPT] 0s | InitOrbiterDevices: done | satellites=66
 [CHKPT] 0s | Initialize: done | satellites=66 isls=132
