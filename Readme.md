@@ -30,6 +30,22 @@
 | 模擬時長 | 600 秒 |
 | 路由更新粒度 τ | 60 秒，共 10 個時間點 |
 
+### 1.4 縮寫對照表
+
+| 縮寫 | 全名 |
+|------|------|
+| NCC | Network Control Center |
+| OBC | On-Board Computer|
+| FT | Fixed Terminal|
+| EMA | Exponential Moving Average|
+| EM | Estimated Metric（需求估算指標，BH Scheduler 用於虛擬流量計算） |
+| WFQ | Weighted Fair Queuing|
+| CRA | Constant Rate Assignment |
+| RBDC | Rate-Based Dynamic Capacity|
+| VBDC | Volume-Based Dynamic Capacity|
+| MMSE | Minimum Mean Square Error|
+| JFI | Jain's Fairness Index|
+
 ---
 
 ## 2. 三層架構
@@ -87,7 +103,9 @@ Layer 3 (SNS3 native)
 
 ## 3. SNS3 接口（當前有效）
 
-### ISL 相關類別
+### Layer 1：ISL 接口
+
+#### ISL 相關類別
 
 | 類別 | 用途 |
 |------|------|
@@ -95,7 +113,7 @@ Layer 3 (SNS3 native)
 | `SatOrbiterNetDevice` | 衛星主 device，管理所有 ISL device 與 Arbiter |
 | `SatIslArbiterUnicast` | 實作類，內部為 `map<destSatId, islInterfaceIndex>` |
 
-### 各模組接口
+#### 各模組接口
 
 | 模組 | SNS3 接口 |
 |------|-----------|
@@ -104,7 +122,7 @@ Layer 3 (SNS3 native)
 | `ApplyRoutingTable()` | `orbDev->SetArbiter(newArbiter)` |
 | `ApplyTable(τ_k)` | `Simulator::Schedule(Seconds(60), callback)` |
 
-### `InitOrbiterDevices()`（在 `Simulator::Run()` 前呼叫）
+#### `InitOrbiterDevices()`（在 `Simulator::Run()` 前呼叫）
 
 ```cpp
 // 預先建立並安裝 66 個 arbiter，快取供排程使用
@@ -119,7 +137,7 @@ for (uint32_t i = 0; i < 66; i++) {
 }
 ```
 
-### `ApplyRoutingTable()`（排程執行時呼叫）
+#### `ApplyRoutingTable()`（排程執行時呼叫）
 
 ```cpp
 // 使用預先建立的 arbiter，原地清空後重填
@@ -134,7 +152,7 @@ for (auto& entry : routingTable[satId])
 
 注意：排程內不可呼叫 `CreateObject<SatIslArbiterUnicast>()`，會觸發 fatal。詳見 `decisions/DEC-003-arbiter-lifecycle.md`。
 
-### `BuildISLGraph()` 效能注意事項
+#### `BuildISLGraph()` 效能注意事項
 
 位置計算必須在迴圈外預先快取，不可在 ISL 邊迴圈內逐次呼叫：
 
@@ -151,7 +169,7 @@ for (uint32_t i = 0; i < m_numSatellites; i++)
 - 錯誤做法：每輪獨立呼叫，10 個 slot 實際建圖 19 次
 - 正確做法：`graphNext` 以 `std::move` 成為下輪 `graphCurr`，只建 10 次
 
-### `UpdateLoadCosts()` 實作
+#### `UpdateLoadCosts()` 實作
 
 ```cpp
 std::vector<Ptr<PointToPointIslNetDevice>> islDevs =
@@ -164,7 +182,7 @@ for (uint32_t i = 0; i < islDevs.size(); i++)
 }
 ```
 
-### `ifIndex` 對應方式
+#### `ifIndex` 對應方式
 
 不依賴 `isls.txt` 順序，改用 peer nodeId 查 vector index：
 
@@ -175,7 +193,9 @@ for (uint32_t j = 0; j < islDevs.size(); j++) {
 }
 ```
 
-### Layer 2 BH 核心時間參數
+### Layer 2：BH 接口
+
+#### BH 核心時間參數
 
 | 符號 | 定義 | 數值 |
 |------|------|------|
@@ -186,7 +206,7 @@ for (uint32_t j = 0; j < islDevs.size(); j++) {
 | `T_prop` | 指令下發延遲 | 10 ms（建議） |
 | `K` | 同時活動 beam 數 | 3（預設） |
 
-### BH 非侵入式擴充原則
+#### BH 非侵入式擴充原則
 
 所有新增模組不得修改 SNS3 原生程式碼，互動只能透過：
 - `TraceSource / TraceCallback`
@@ -239,6 +259,40 @@ A_j = Σ_p A_{p,j}                              // 小區總虛擬流量
 | `T_{p,j}` | 封包剩餘 TTL（slot 計） | — |
 | `κ` | 干擾 cluster 合併門檻 | 0.08 |
 
+### Layer 1 Config 參數（NS3 Attribute）
+
+所有參數均透過 NS3 Attribute 機制設定，可在 `v5_test-iridium.cc` 中以 `mgr->SetAttribute(...)` 覆蓋預設值。
+
+| Attribute 名稱 | 成員變數 | 型別 | 預設值 | 說明 |
+|----------------|---------|------|--------|------|
+| `NumSatellites` | `m_numSatellites` | `uint32` | `66` | 星座衛星總數 |
+| `IslMaxDistanceKm` | `m_islMaxDistanceKm` | `double` | `5000.0` | ISL 連接距離上限（km）；超過此值的 ISL 在建圖時被排除（`eligible = false`） |
+| `NumTimeSlots` | `m_numTimeSlots` | `uint32` | `10` | 離線預計算的時間槽總數 |
+| `TimeSlotInterval` | `m_timeSlotInterval` | `double` | `60.0` | 時間槽間隔（秒）；同時決定 `ScheduleRoutingUpdates` 的觸發週期 |
+| `IslsFilePath` | `m_islsFilePath` | `string` | `""` | `isls.txt` 完整路徑；`Initialize()` 時呼叫 `LoadISLDefs()` 讀入 |
+| `EmaAlpha` | `m_emaAlpha` | `double` | `0.3` | EMA（指數移動平均）新樣本權重（0 < α ≤ 1）；值越大 load cost 對瞬時 queue 越敏感 |
+| `ChangeThreshold` | `m_changeThreshold` | `double` | `0.1` | 觸發 `RecomputeAffectedRoutes` 的 load cost 相對變化門檻（10%）；低於此值不重算 |
+| `CooldownSeconds` | `m_cooldownSeconds` | `double` | `30.0` | 兩次 partial recompute 之間的最短間隔（秒）；防止 load 震盪導致頻繁切換 |
+| `IslLinkRateBps` | `m_islLinkRateBps` | `double` | `10.0e6` | ISL 鏈路速率（bps）；用於將 queue packet count 換算為 load delay（`bits / rate`） |
+
+#### 硬編碼常數（非 Attribute，修改需直接改 code）
+
+| 常數 | 數值 | 所在函式 | 說明 |
+|------|------|---------|------|
+| 光速 `C` | `3×10⁸ m/s` | `BuildISLGraph()`、`BuildISLGraphWithLoad()` | 傳播延遲計算基準：`propCost = dist / C` |
+| 假設封包大小 | `1500 bytes` | `GetLinkQueueDelay()` | load cost 換算：`bits = nPackets × 1500 × 8` |
+| cost 權重 α, β | 各為 `1.0`（隱含） | `BuildISLGraphWithLoad()` | `total_cost = propCost + loadCost`，兩者等權，無獨立 weight 欄位 |
+
+#### 參數調整的連動效應
+
+| 調整項目 | 直接效果 | 注意事項 |
+|---------|---------|---------|
+| `EmaAlpha` ↑ | load cost 對瞬時壅塞更敏感，切換更快 | 與 `CooldownSeconds` 搭配；單獨調高易造成震盪 |
+| `ChangeThreshold` ↓ | 更容易觸發 `RecomputeAffectedRoutes` | 計算開銷增加，建議搭配 `CooldownSeconds` 限制頻率 |
+| `CooldownSeconds` ↑ | 降低 recompute 頻率，穩定性提升 | 副作用：ISL 失效後最長延遲 `CooldownSeconds` 才能恢復（見 Readme 第 12 節） |
+| `NumTimeSlots` ↑ | 預計算解析度提升 | 記憶體與初始化時間線性增加；`TimeSlotInterval` × `NumTimeSlots` = 總覆蓋秒數 |
+| `IslMaxDistanceKm` ↑ | 連通性增強，可能建立長延遲 ISL | 超過 ~5500 km 後 Iridium 星座中可能出現不穩定跨面連結 |
+
 ---
 
 ## 6. 執行順序
@@ -274,6 +328,16 @@ A_j = Σ_p A_{p,j}                              // 小區總虛擬流量
 ## 7. 資料結構
 
 ### Layer 1
+
+#### 資料模組總覽
+
+| 資料結構 | 職責 | 關鍵欄位 |
+|---------|------|---------|
+| `ISLState` | 記錄每條 ISL 的連接狀態、各類成本與負載歷史 | `nodeA/B`, `eligible`, `stableToNext`, `propagation_cost`, `load_cost`, `smoothed_load`, `total_cost`, `sourcesUsingThisISL` |
+| `RouteEntry` | 記錄單條路由條目（目的地 → 下一跳 + 出口介面） | `destNodeId`, `nextHopNodeId`, `islInterfaceIdx`, `cost` |
+| `RoutingTableSnapshot` | 單一時間點的完整拓樸快照，含路由表、ISL 狀態與鄰接矩陣 | `timestamp`, `routingTables`, `islStates`, `adjacency` |
+
+#### 完整結構定義
 
 ```cpp
 struct ISLState {
@@ -419,12 +483,12 @@ struct SatBhTimePlan {
 
 ## 13. 設計決策參考
 
-| 決策 | 文件 |
-|------|------|
-| Arbiter 機制取代 IP 層路由 | `Decisions/01_Arbiter mechanism replaces IP layer routing.md` |
-| ISL 距離門檻設為 5000 km | `Decisions/02_ISL Distance Threshold.md` |
-| Arbiter 預先建立（非排程內建立） | `Decisions/03_Arbiter lifecycle management.md` |
-| Beam Scheduler 開銷根本原因 | `Decisions/04_Beam Scheduler.md` |
+| 決策 | 原因 | 文件 |
+|------|------|------|
+| Arbiter 機制取代 IP 層路由 | SNS3 ISL 封包轉發繞過 IP 層，`Ipv4StaticRouting` 無效；轉發由 `SatIslArbiterUnicast` 查 `map<destSatId, islInterfaceIndex>` 決定出口 | `Decisions/01_Arbiter mechanism replaces IP layer routing.md` |
+| ISL 距離門檻設為 5000 km | Iridium 跨軌道面 ISL 瞬時距離可達 ~4800 km；2500 km（官方平均值）會導致拓樸圖斷裂，部分衛星無法連通 | `Decisions/02_ISL Distance Threshold.md` |
+| Arbiter 預先建立（非排程內建立） | 排程內呼叫 `CreateObject<SatIslArbiterUnicast>()` 因 default constructor 缺少衛星節點指標，物件處於無效狀態，觸發 fatal crash | `Decisions/03_Arbiter lifecycle management.md` |
+| Beam Scheduler 開銷根本原因 | SNS3 DVB MAC scheduler 無流量時仍持續排程（66 顆 × forward/return × superframe 250ms），event count 超過 `UINT32_MAX`，`Simulator::Run` 佔 99.9% wall time | `Decisions/04_Beam Scheduler.md` |
 
 ---
 
@@ -446,7 +510,7 @@ ApplyRoutingTable: slot=0  t=0s   done
 ApplyRoutingTable: slot=11 t=600s done
 ```
 
-### Layer 2 BH KPI 目標（正式規格）
+### Layer 2 BH KPI 目標
 
 | KPI | 目標 |
 |-----|------|

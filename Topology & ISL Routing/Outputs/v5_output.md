@@ -11,8 +11,8 @@
 [CHKPT] 0s | Initialize: done | satellites=66 isls=132
 [CHKPT] 0s | PrecomputeAllTables: start | slots=12
 [CHKPT] PrecomputeAllTables: slot=0 t=0s | SAT0_routes=65 dijkstra=0ms total=0ms
-[CHKPT] PrecomputeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=0ms
-[CHKPT] PrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
 [CHKPT] PrecomputeAllTables: slot=3 t=180s | SAT0_routes=65 dijkstra=0ms total=0ms
 [CHKPT] PrecomputeAllTables: slot=4 t=240s | SAT0_routes=65 dijkstra=0ms total=1ms
 [CHKPT] PrecomputeAllTables: slot=5 t=300s | SAT0_routes=65 dijkstra=0ms total=0ms
@@ -337,3 +337,12 @@ ScheduleBhUpdates()
 
 * BH scheduler 已成功運作並註冊事件
 * 目前尚未影響 routing（僅整合，未耦合）
+
+---
+
+### 9.代表性測試對
+|Pair	|說明	|特性|
+|-|-|-|
+|0 → 32	|SAT 0 在軌道面 0，SAT 32 在軌道面 2 的對側	|長距離、多跳（跨面 + 同面混合），可看到路徑切換
+|0 → 11	|SAT 0 到同面最後一顆（SAT 11）	|跨面近距，1–2 跳，短路徑驗證
+|10 → 55	|SAT 10 到 SAT 55	|同時橫跨同面 ISL + 跨面 ISL 的混合路徑
