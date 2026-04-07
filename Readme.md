@@ -1,6 +1,6 @@
 # SNS3 預先排程路由架構 — Guide
 
-> 只記當前有效的設計與接口。歷史決策與修改原因見 `decisions/`。
+> 只記當前有效的設計與接口。歷史決策與修改原因見 `Decisions/`。
 
 ---
 
@@ -8,15 +8,15 @@
 
 ### 1.1 核心主張
 
-原生 SNS3 在每個更新週期執行完整的 O(N²) 拓樸重建加全量 Dijkstra。本架構將這部分工作移至模擬開始前的離線預計算階段，執行期只做輕量的即時修正。
+原生 SNS3 在每個更新週期執行完整的 O(N²) 拓樸重建加全量 Dijkstra。將這部分工作移至模擬開始前的離線預計算階段，執行期僅在 load cost 變化超過`ChangeThreshold`時，針對受影響節點進行局部 Dijkstra 重算，其餘時間直接套用離線路由表
 
 ### 1.2 與原生 SNS3 的對比
 
 | 項目 | 原生 SNS3 | 本架構 |
 |------|----------|--------|
 | 拓樸重建 | 每 60s 重建，O(N²) | 離線一次完成，執行期不重建 |
-| Dijkstra | 每次全量重算 | 只對受影響節點重跑 |
-| load 感知 | 不支援 | 執行期讀 device queue 微調 |
+| Dijkstra | 每次全量重算 | 當某條 ISL 的 load cost 變化比例超過`ChangeThreshold`，重算|
+| load 感知 | 不支援 | 執行期讀`PointToPointIslNetDevice::GetQueue()->GetNPackets()`微調 |
 | 時鐘依賴 | `GetPosition()` 依賴 `Simulator::Now()` | SGP4 直接代入 τ_k，與時鐘無關 |
 
 ### 1.3 星座參數
@@ -150,7 +150,7 @@ for (auto& entry : routingTable[satId])
 }
 ```
 
-注意：排程內不可呼叫 `CreateObject<SatIslArbiterUnicast>()`，會觸發 fatal。詳見 `decisions/DEC-003-arbiter-lifecycle.md`。
+注意：排程內不可呼叫 `CreateObject<SatIslArbiterUnicast>()`，在排程 callback 中缺少有效 Node context，會導致 Arbiter 初始化失敗並觸發 NS_FATAL。詳見 `decisions/DEC-003-arbiter-lifecycle.md`。
 
 #### `BuildISLGraph()` 效能注意事項
 
@@ -222,7 +222,7 @@ for (uint32_t j = 0; j < islDevs.size(); j++) {
 |------|------|
 | 距離上限 | 5000 km |
 | 仰角門檻 | 不適用（僅用於 UT/GW 鏈路） |
-| Beam 狀態 | 第一階段恆為 true |
+| Beam 狀態 | 假設所有 beam 皆為可用 |
 
 ---
 
@@ -333,39 +333,69 @@ A_j = Σ_p A_{p,j}                              // 小區總虛擬流量
 
 | 資料結構 | 職責 | 關鍵欄位 |
 |---------|------|---------|
-| `ISLState` | 記錄每條 ISL 的連接狀態、各類成本與負載歷史 | `nodeA/B`, `eligible`, `stableToNext`, `propagation_cost`, `load_cost`, `smoothed_load`, `total_cost`, `sourcesUsingThisISL` |
-| `RouteEntry` | 記錄單條路由條目（目的地 → 下一跳 + 出口介面） | `destNodeId`, `nextHopNodeId`, `islInterfaceIdx`, `cost` |
-| `RoutingTableSnapshot` | 單一時間點的完整拓樸快照，含路由表、ISL 狀態與鄰接矩陣 | `timestamp`, `routingTables`, `islStates`, `adjacency` |
+| `ISLEdge` | 一條有向 ISL 邊（鄰接表的節點） | `nodeB`, `propagation_cost`, `islIfIndexOnA`, `islIfIndexOnB` |
+| `ISLDef` | 靜態 ISL 定義，從 `isls.txt` 讀入 | `nodeA`, `nodeB` |
+| `RouteEntry` | 一條路由表項目（目的地 → 下一跳 + 出口介面） | `destSatId`, `nextHopSatId`, `islIfIndexOnA`, `cost` |
+| `ISLGraph` | 66 節點的鄰接表（`vector<vector<ISLEdge>>`） | — |
+| `RoutingTable` | 66 顆衛星各自的路由表（`vector<vector<RouteEntry>>`） | — |
+| `SlotStats` | 每槽執行統計 | `slotIndex`, `simTimeSec`, `applyWallMs`, `recomputeWallMs`, `recomputedSources`, `significantChange` |
+| `GwDef` | 地面閘道器定義 | `gwId`, `latDeg`, `lonDeg`, `name` |
+| `GwToGwRoute` | GW→GW 最佳路由結果（一對 GW 在一個時槽） | `srcGwId`, `dstGwId`, `entrySatId`, `exitSatId`, `satPath`, `islCost`, `valid` |
+| `UtDef` | 使用者終端定義 | `utId`, `latDeg`, `lonDeg`, `name` |
+| `GwToUtRoute` | GW→UT 最佳路由結果（一對 GW–UT 在一個時槽） | `gwId`, `utId`, `entrySatId`, `servingSatId`, `satPath`, `islCost`, `valid` |
 
 #### 完整結構定義
 
 ```cpp
-struct ISLState {
-    uint32_t nodeA, nodeB;
-    bool     eligible;
-    bool     stableToNext;           // tiebreaker 用
+struct ISLEdge {
+    uint32_t nodeB;
     double   propagation_cost;
-    double   load_cost;
-    double   smoothed_load;
-    double   total_cost;
-    std::set<uint32_t> sourcesUsingThisISL;
+    uint32_t islIfIndexOnA;          // A 端出口 ifIndex
+    uint32_t islIfIndexOnB;          // B 端出口 ifIndex（tiebreaker 用）
 };
 
 struct RouteEntry {
-    uint32_t destNodeId;
-    uint32_t nextHopNodeId;
-    uint32_t islInterfaceIdx;        // GetIslsNetDevices() vector index
+    uint32_t destSatId;
+    uint32_t nextHopSatId;
+    uint32_t islIfIndexOnA;          // GetIslsNetDevices() vector index
     double   cost;
 };
 
-struct RoutingTableSnapshot {
-    Time     timestamp;
-    std::map<uint32_t, std::vector<RouteEntry>> routingTables;
-    std::vector<ISLState> islStates;
-    std::map<uint32_t, std::vector<std::pair<uint32_t,double>>> adjacency;
+struct GwDef {
+    uint32_t    gwId;
+    double      latDeg, lonDeg;
+    std::string name;
 };
 
-std::map<Time, RoutingTableSnapshot> m_precomputedTables;
+struct GwToGwRoute {
+    uint32_t              srcGwId, dstGwId;
+    uint32_t              entrySatId, exitSatId;
+    std::vector<uint32_t> satPath;
+    double                islCost;
+    bool                  valid;
+};
+
+struct UtDef {
+    uint32_t    utId;
+    double      latDeg, lonDeg;
+    std::string name;
+};
+
+struct GwToUtRoute {
+    uint32_t              gwId, utId;
+    uint32_t              entrySatId, servingSatId;
+    std::vector<uint32_t> satPath;
+    double                islCost;
+    bool                  valid;
+};
+
+struct SlotStats {
+    uint32_t slotIndex;
+    double   simTimeSec;
+    long     applyWallMs, recomputeWallMs;
+    uint32_t recomputedSources;
+    bool     significantChange;
+};
 ```
 
 ### Layer 2
@@ -394,8 +424,8 @@ struct SatBhTimePlan {
 
 | 機制 | 設定 |
 |------|------|
-| EMA | `smoothed = 0.7×prev + 0.3×instant` |
-| Hysteresis | 新路徑 cost 必須低於現有路徑 δ（建議 0.5×avg_prop） |
+| EMA | `smoothed = (1 - α) × previous + α × current`  α=0.3|
+| Hysteresis | 新路徑 cost 低於現有路徑 δ（建議 0.5×avg_prop）允許切換 |
 | Cooldown | 同一 ISL 切換後 60s 內不再切換 |
 
 ---
@@ -408,7 +438,7 @@ struct SatBhTimePlan {
 |------|---------|------|
 | `satellite-sgp4-mobility-model.h/.cc` | 新增 `GetGeoPositionAt(Time t)` | ✅ 完成 |
 | `satellite-isl-arbiter-unicast.h` | 新增 `ClearNextHopEntries()` | ✅ 完成 |
-| `v5_isl-graph.h/.cc` | 完整 ISL routing，load-aware，tiebreaker；`GetNumTimeSlots()`、`GetNumSatellites()`、`GetTimeSlotInterval()`、`GetRouteCost()` | ✅ 完成 |
+| `isl-graph.h/.cc` | 完整 ISL routing，load-aware，tiebreaker；GW/UT 路由（v6/v7）；`GetNumTimeSlots()`、`GetNumSatellites()`、`GetTimeSlotInterval()`、`GetRouteCost()`；`PrecomputeGwRoutes`、`PrecomputeGwUtRoutes` | ✅ 完成（v7） |
 
 ### Layer 1 Extension：FT Visibility Filter
 
@@ -429,7 +459,6 @@ struct SatBhTimePlan {
 | `sat-bh-precoder.h/.cc` | `SatBhPrecoder`：MMSE 預編碼（cluster ≥ 2 beam 時啟動） | ⏳ Phase 3 |
 | `sat-bh-helper.h/.cc` | `SatBhHelper`：統一安裝入口，trace/hook 連線，feature flag；Phase 2 新增 `ApplySyntheticDemand`、修正 OBC/Scheduler 初始化順序 | ✅ Phase 2 active（Phase 3/4 stub 保留） |
 
-> 舊版 `beam-hopping-manager.h/.cc` 保留作 Phase 0 prototype validator，不作為正式架構。
 
 ### Layer 3：QoS（純配置）
 
@@ -441,7 +470,7 @@ struct SatBhTimePlan {
 
 | 檔案 | 內容 | 狀態 |
 |------|------|------|
-| `v5_test-iridium.cc` | Layer 1 + FT filter 完整整合，FT 台灣/日本/美國，4 個台灣 cell | ✅ 完成（BH 為 stub） |
+| `test-iridium.cc` | Layer 1 三模式（sat2sat / gw2gw / gw2ut）整合測試；GW preset：TW-Taipei(0)、JP-Tokyo(1)、US-SanFrancisco(2) | ✅ 完成（v7 已驗證） |
 
 ---
 
@@ -494,21 +523,83 @@ struct SatBhTimePlan {
 
 ## 14. 驗證基準
 
-### Layer 1 v5 Output（simTime=630s, slotInterval=60s）
+### Layer 1 v7 Output（simTime=630s, slotInterval=60s, numSlots=11）
+
+配置：`[CFG] mode=<mode> simTime=630 slotInterval=60 numSlots=11 lastSlotTime=600`
+
+通用基準（三個模式相同）：
 
 ```
-LoadISLDefs: loaded 132 ISLs
-InitOrbiterDevices: done
-PrecomputeAllTables: start
-  slot=0  t=0s:   SAT0_routes=65  ✓
-  ...
-  slot=11 t=660s: SAT0_routes=65  ✓
-PrecomputeAllTables: complete
-ScheduleRoutingUpdates: 12 events scheduled
-ApplyRoutingTable: slot=0  t=0s   done
-...
-ApplyRoutingTable: slot=11 t=600s done
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | InitOrbiterDevices: done | satellites=66
+[CHKPT] 0s | PrecomputeAllTables: complete | wall=4–5ms
+[CHKPT] 0s | ScheduleRoutingUpdates: 11 events scheduled
 ```
+
+#### mode=sat2sat（SAT0→SAT33）
+
+```
+./ns3 run "scratch/test-iridium --mode=sat2sat --satSrc=0 --satDst=33"
+```
+
+| slot 0–4 | `0->1->2->57->46->35->34->33`（7 hops）cost 0.078→0.069 |
+| slot 5–10 | `0->1->56->45->34->33`（5 hops）cost 0.066→0.048  ← PATH CHANGED @ slot=5 |
+
+Wall time: 2722.79s
+
+#### mode=gw2gw（TW-Taipei↔JP-Tokyo）
+
+```
+./ns3 run "scratch/test-iridium --mode=gw2gw --gwSrc=0 --gwDst=1"
+```
+
+| slot 0–4 | entry/exit=SAT15 |
+| slot 5–6 | entry/exit=SAT44  ← ROUTE CHANGED @ slot=5 |
+| slot 7–10 | entry/exit=SAT14  ← ROUTE CHANGED @ slot=7 |
+
+雙向對稱，isl_cost=0.0。Wall time: 2403.38s
+
+#### mode=gw2ut（TW-Taipei → UT-Taipei）
+
+```
+./ns3 run "scratch/test-iridium --mode=gw2ut --gwId=0 --utId=0 --utLatDeg=25.0330 --utLonDeg=121.5654 --utName=UT-Taipei"
+```
+
+| slot 0–5 | entry/serving=SAT15（UT slot=5 仍有 2 顆可見衛星） |
+| slot 6 | entry/serving=SAT44  ← ROUTE CHANGED @ slot=6（比 gw2gw 晚一槽） |
+| slot 7–10 | entry/serving=SAT14  ← ROUTE CHANGED @ slot=7 |
+
+Wall time: 2765.45s
+
+#### mode=gw2gw（TW-Taipei↔US-SanFrancisco，長距離跨太平洋）
+
+```
+./ns3 run "scratch/test-iridium --mode=gw2gw --gwSrc=0 --gwDst=2"
+```
+
+| slot 0–1 | entry=SAT15 / exit=SAT37 / path=`15->14->25->36->37` / isl_cost≈0.044–0.046s |
+| slot 2 | entry=SAT15 / exit=SAT1 / path=`15->14->13->2->1` ← ROUTE CHANGED |
+| slot 3–5 | entry=SAT15 / exit=SAT36 / path=`15->14->25->36` ← ROUTE CHANGED @ slot=3 |
+| slot 6 | entry=SAT44 / exit=SAT36 / path=`44->45->46->35->36` ← ROUTE CHANGED |
+| slot 7–8 | entry=SAT14 / exit=SAT36 / path=`14->13->24->35->36` ← ROUTE CHANGED @ slot=7 |
+| slot 9–10 | entry=SAT44 / exit=SAT0 / path=`44->45->56->1->0` ← ROUTE CHANGED @ slot=9 |
+
+雙向對稱，isl_cost 範圍 0.0377～0.0476s，ISL 跳數 4～5 跳，共 5 次路徑切換（vs TW→JP 的 2 次）。
+
+#### mode=gw2ut（TW-Taipei → UT-SanFrancisco，長距離跨太平洋）
+
+```
+./ns3 run "scratch/test-iridium --mode=gw2ut --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco"
+```
+
+| slot 0–1 | entry=SAT15 / serving=SAT37 / path=`15->14->25->36->37` / isl_cost≈0.044–0.046s |
+| slot 2 | entry=SAT15 / serving=SAT1 / path=`15->14->13->2->1` ← ROUTE CHANGED |
+| slot 3–5 | entry=SAT15 / serving=SAT36 / path=`15->14->25->36` ← ROUTE CHANGED @ slot=3 |
+| slot 6 | entry=SAT44 / serving=SAT36 / path=`44->45->46->35->36` ← ROUTE CHANGED |
+| slot 7–8 | entry=SAT14 / serving=SAT36 / path=`14->13->24->35->36` ← ROUTE CHANGED @ slot=7 |
+| slot 9–10 | entry=SAT44 / serving=SAT0 / path=`44->45->56->1->0` ← ROUTE CHANGED @ slot=9 |
+
+與 gw2gw TPE→SF 路徑和切換時機完全一致（UT@SF 座標 = GW2@SF 座標，serving = exit 全程）。Wall time: 2921.66s
 
 ### Layer 2 BH KPI 目標
 
@@ -544,7 +635,9 @@ ApplyRoutingTable: slot=11 t=600s done
 | v2 | OOP 重構為 `IslRoutingManager`，NS3 Attribute 機制 |
 | v3 | 效能優化 Fix 1–4，`UpdateLoadCosts` / `HasSignificantChange` / `RecomputeAffectedRoutes` 實作 |
 | v4 | 計時拆解，確認效能瓶頸在 `Simulator::Run`，`BuildISLGraphWithLoad` 加入 |
-| v5 | 新增 `ft-filter.h/.cc`（FtVisibilityFilter），新增 Layer 2/3 accessor（GetRouteCost 等），整合三層測試 |
+| v5 | 新增 `ft-filter.h/.cc`（FtVisibilityFilter），新增 Layer 2/3 accessor（`GetRouteCost` 等），整合三層測試 |
+| v6 | 新增 GW-to-GW 路由（`GwDef`、`GwToGwRoute`、`PrecomputeGwRoutes`、`PrintGwRouteReport`）；GW 可見性以仰角 >5° 篩選；Report v6 格式（entry / ISL_path / exit / isl_cost） |
+| v7 | 新增 GW-to-UT 路由（`UtDef`、`GwToUtRoute`、`PrecomputeGwUtRoutes`、`PrintGwUtRouteReport`）；複用 GW 可見性；Report v7 格式（增加 serving 欄）；test-iridium.cc 支援三模式 CLI 切換 |
 
 ### Layer 2
 

@@ -1,3 +1,4 @@
+```
 [CFG] mode=gw2gw simTime=630 slotInterval=60 numSlots=11 lastSlotTime=600
 [CHKPT] 0s | Initialize: start
 [CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
@@ -101,6 +102,7 @@ slot  time(s)   entry   ISL_path                                          exit  
 [CHKPT] 600s | RecomputeAffectedRoutes: slot=10 recomputed=50/66 wall=0ms
 [CHKPT] 600s | ApplyRoutingTable: slot=10 t=600s | apply=0ms recompute=0ms recomputedSrc=50
 
+
 === IslRoutingManager Stats ===
 slot  simTime   apply(ms)   recompute(ms)   recompSrc       changed     
 0     0         0           0               0               NO          
@@ -118,3 +120,4 @@ slot  simTime   apply(ms)   recompute(ms)   recompSrc       changed
 
 Total wall time: 2403.38 s
 Event count:     0
+```
