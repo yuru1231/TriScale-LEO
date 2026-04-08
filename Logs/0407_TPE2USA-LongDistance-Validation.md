@@ -78,11 +78,11 @@ Wall time: 2921.66s
 
 今日更新（含本次補齊）：
 
-- [X] 更新 [Layer1.md](../Topology%20&%20ISL%20Routing/Layer1.md)：新增 gw2gw TPE→SF 長距離驗證段落（路由切換表、說明）
-- [X] 更新 [Readme.md](../Readme.md)：新增 mode=gw2gw（TW→USA）驗證摘要
-- [X] 建立 [gw2gw_tpe2usa.md](../Topology%20&%20ISL%20Routing/Outputs/gw2gw_tpe2usa.md)：已回填完整執行輸出與結果分析
-- [X] 建立 [gw2ut_tpe2usa.md](../Topology%20&%20ISL%20Routing/Outputs/gw2ut_tpe2usa.md)：已回填完整執行輸出與結果分析
-- [X] 建立 [Architecture_and_Native_Comparison.md](../Topology%20&%20ISL%20Routing/Outputs/gw2ut_tpe2usa.md)：分析原生模組差異
+- [X] 更新 [Layer1.md](https://github.com/bmw-ntust-internship/Lucy/blob/3a4e19a4811f8fe2d0805da11cf9d13928dcdee4/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Readme.md)：新增 gw2gw TPE→SF 長距離驗證段落（路由切換表、說明）
+- [X] 更新 [Readme.md](https://github.com/bmw-ntust-internship/Lucy/blob/3a4e19a4811f8fe2d0805da11cf9d13928dcdee4/TriScale-LEO/Readme.md)：新增 mode=gw2gw（TW→USA）驗證摘要
+- [X] 建立 [gw2gw_tpe2usa.md](https://github.com/bmw-ntust-internship/Lucy/blob/3a4e19a4811f8fe2d0805da11cf9d13928dcdee4/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Result/gw2gw_tpe2usa.md)：已回填完整執行輸出與結果分析
+- [X] 建立 [gw2ut_tpe2usa.md](https://github.com/bmw-ntust-internship/Lucy/blob/3a4e19a4811f8fe2d0805da11cf9d13928dcdee4/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Result/gw2ut_tpe2usa.md)：已回填完整執行輸出與結果分析
+- [X] 建立 [Architecture_and_Native_Comparison.md](https://github.com/bmw-ntust-internship/Lucy/blob/3a4e19a4811f8fe2d0805da11cf9d13928dcdee4/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Architecture_and_Native_Comparison.md)：分析原生模組差異
 
 
 ---
