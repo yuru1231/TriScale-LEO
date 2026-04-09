@@ -539,8 +539,11 @@ IslRoutingManager::GetLinkQueueDelay(uint32_t satId, uint32_t ifIdx) const
     if (!q)
         return 0.0;
 
-    uint32_t nPackets = q->GetNPackets();
-    double   bits     = static_cast<double>(nPackets) * 1500.0 * 8.0;
+    // 使用佇列實際持有的 byte 數，而非封包數 × 固定 1500 bytes。
+    // 原先 nPackets * 1500 的估算在 SNS3 控制平面封包（通常遠小於 1500B）
+    // 下會嚴重高估 queue delay，導致 trafficProfile=none 時出現大量假性非零值。
+    uint32_t nBytes = q->GetNBytes();
+    double   bits   = static_cast<double>(nBytes) * 8.0;
 
     if (m_islLinkRateBps <= 0.0)
         return 0.0;
@@ -791,6 +794,67 @@ IslRoutingManager::PrintStats() const
     }
 
     std::cout << "==============================\n" << std::endl;
+}
+
+// ── PrintLoadStats ────────────────────────────────────────────────────────
+// 輸出每條 ISL 的最終 EMA load cost（佇列延遲，單位 ms）。
+// 僅印出 loadAB 或 loadBA 非零的鏈路（有流量才有非零值）。
+// 用途：
+//   1. 驗證 CBR 流量是否確實流過 ISL 層
+//   2. 確認 UpdateLoadCosts + EMA 平滑機制在運行
+//   3. 觀察負載分布，作為後續 QoS 調整依據
+void
+IslRoutingManager::PrintLoadStats() const
+{
+    const uint32_t N = m_numSatellites;
+
+    std::cout << "\n=== ISL Load Cost Summary (EMA queue delay) ===" << std::endl;
+    std::cout << std::left
+              << std::setw(8)  << "edgeIdx"
+              << std::setw(8)  << "satA"
+              << std::setw(8)  << "satB"
+              << std::setw(16) << "loadAB(ms)"
+              << std::setw(16) << "loadBA(ms)"
+              << std::endl;
+
+    uint32_t nonZeroLinks = 0;
+
+    for (uint32_t edgeIdx = 0; edgeIdx < m_islDefs.size(); edgeIdx++)
+    {
+        uint32_t a = m_islDefs[edgeIdx].nodeA;
+        uint32_t b = m_islDefs[edgeIdx].nodeB;
+
+        // load cost 單位為秒（queue bits / link rate），轉換為 ms 方便閱讀
+        double loadAbMs = m_loadCosts[a * N + b] * 1000.0;
+        double loadBaMs = m_loadCosts[b * N + a] * 1000.0;
+
+        // 僅印出有流量的鏈路（threshold 1e-6 ms 避免浮點誤差干擾）
+        if (loadAbMs > 1e-6 || loadBaMs > 1e-6)
+        {
+            std::cout << std::left
+                      << std::setw(8)  << edgeIdx
+                      << std::setw(8)  << a
+                      << std::setw(8)  << b
+                      << std::setw(16) << std::fixed << std::setprecision(4) << loadAbMs
+                      << std::setw(16) << loadBaMs
+                      << std::endl;
+            nonZeroLinks++;
+        }
+    }
+
+    if (nonZeroLinks == 0)
+    {
+        // 可能原因：
+        //   - 流量未通過 ISL 層（僅在單顆衛星 feeder link 內完成）
+        //   - simTime 太短，流量尚未到達 ISL
+        //   - TrafficConfig::enableFwd / enableRtn 均為 false
+        std::cout << "(no ISL load detected — traffic may not have reached ISL layer)\n";
+    }
+
+    std::cout << "Loaded ISL links: " << nonZeroLinks
+              << " / " << m_islDefs.size()
+              << " total ISL edges\n";
+    std::cout << "================================================\n" << std::endl;
 }
 
 // ── Accessors ─────────────────────────────────────────────────────────────
@@ -1615,6 +1679,67 @@ IslRoutingManager::PrintGwUtRouteReport() const
     }
 
     std::cout << "\n===================================\n\n";
+}
+
+// ── HolDelayObserver Stub 實作 ────────────────────────────────────────────
+//
+// 以下三個方法均為 no-op stub，保留完整的實作路線圖於註解中。
+// 待使用者確認允許修改 SNS3 satellite-queue.h/.cc 後，再依路線圖展開實作。
+
+void
+HolDelayObserver::Enable()
+{
+    // ── 解鎖後的實作步驟（確認許可後展開）────────────────────────────────
+    //
+    // Step 1. 在 satellite-queue.h 定義 EnqueueTimestampTag：
+    //   class EnqueueTimestampTag : public Tag {
+    //     Time m_enqueueTime;
+    //     void Serialize / Deserialize / GetSerializedSize ...
+    //   };
+    //
+    // Step 2. 在 SatQueue::Enqueue() 加入：
+    //   pkt->AddPacketTag(EnqueueTimestampTag(Simulator::Now()));
+    //
+    // Step 3. 在 SatQueue::Dequeue() 加入：
+    //   EnqueueTimestampTag tag;
+    //   if (pkt->RemovePacketTag(tag))
+    //       m_holDelayTrace(( Simulator::Now() - tag.m_enqueueTime ).GetMilliSeconds());
+    //
+    // Step 4. 在 SatQueue::GetTypeId() 新增 TraceSource：
+    //   .AddTraceSource("HolDelayTrace", "HOL delay in ms",
+    //                   MakeTraceSourceAccessor(&SatQueue::m_holDelayTrace),
+    //                   "ns3::TracedValueCallback::Double")
+    //
+    // Step 5. 在 test-iridium.cc CreateSatScenario() 後連接：
+    //   Config::ConnectWithoutContext(
+    //       "/NodeList/*/DeviceList/*/SatLlc/SatQueue/HolDelayTrace",
+    //       MakeCallback(&HolDelayTraceCallback));
+
+    std::cout << "[HOL] HolDelayObserver::Enable() — Stub only, not yet implemented.\n"
+              << "      Requires SNS3 modification (satellite-queue.h/.cc).\n"
+              << "      See isl-graph.h HolDelayObserver for full implementation roadmap.\n";
+    m_enabled = false;
+}
+
+double
+HolDelayObserver::GetHolDelayMs(uint32_t /* utNodeId */) const
+{
+    // Stub：回傳 -1.0 代表「未實作」
+    // 實作後：從 EMA 統計表依 utNodeId 查詢最近一次 HOL delay
+    return -1.0;
+}
+
+void
+HolDelayObserver::PrintReport() const
+{
+    if (!m_enabled)
+    {
+        std::cout << "[HOL] HolDelayObserver is not yet implemented.\n"
+                  << "      Call Enable() after confirming SNS3 modification permission.\n"
+                  << "      See isl-graph.h HolDelayObserver for implementation roadmap.\n";
+        return;
+    }
+    // 實作後：輸出所有 UT 的 HOL delay（min / max / avg）
 }
 
 } // namespace ns3

@@ -107,6 +107,58 @@ struct GwToUtRoute
     bool                  valid{false};
 };
 
+// ── HolDelayObserver（Stub）────────────────────────────────────────────────
+//
+// 設計目的：
+//   觀察 SNS3 SatFwdLinkScheduler 的 Head-of-Line (HOL) 延遲，
+//   以驗證 FWD CBR 流量是否真的進入前向鏈路排程佇列並影響排程決策。
+//
+// 預計觀察路徑（FWD link）：
+//   GW CBR App
+//     → SatGwLlc（per-UT FIFO 緩衝區）
+//       → SatFwdLinkScheduler（每超幀週期決定哪個 UT 封包優先傳輸）
+//         → HOL delay = Simulator::Now() - 封包入列時間戳
+//
+// 目前障礙（截至目前 SNS3 版本）：
+//   1. SatQueue::QueueStats_t 無 holDelayMs 欄位
+//   2. SatFwdLinkScheduler 未以 TraceSource 對外暴露 HOL 延遲值
+//   3. 若要實作需修改 contrib/satellite/model/satellite-queue.h/.cc，
+//      目前受 CLAUDE.md §5.3 限制，未經確認不可修改
+//
+// 解鎖條件（須使用者確認允許修改以下 SNS3 檔案）：
+//   - contrib/satellite/model/satellite-queue.h
+//   - contrib/satellite/model/satellite-queue.cc
+//
+// 預計實作方法（解鎖後展開）：
+//   Step 1. 定義 EnqueueTimestampTag（ns3::Tag 衍生類別），
+//           欄位：Time enqueueTime
+//   Step 2. 在 SatQueue::Enqueue 時 pkt->AddPacketTag(EnqueueTimestampTag(Now()))
+//   Step 3. 在 SatQueue::Dequeue 時讀取 tag，
+//           holDelay = Now() - tag.enqueueTime，更新 EMA 統計
+//   Step 4. 在 SatQueue 新增 TraceSource "HolDelayTrace"（TracedValue<double>）
+//   Step 5. 在 test-iridium.cc 以 Config::ConnectWithoutContext 掛接：
+//             /NodeList/*/DeviceList/*/SatLlc/SatQueue/HolDelayTrace
+//
+// 此 Stub 類僅作文件佔位符，所有方法均為 no-op，待解鎖後替換為真實實作。
+class HolDelayObserver
+{
+  public:
+    // 嘗試連接 HOL delay trace source。
+    // Stub 狀態：印出提示說明未實作原因後直接返回，不做任何連接。
+    void Enable();
+
+    // 取得指定 UT node ID 最近一次 HOL delay（毫秒）。
+    // Stub 狀態：永遠回傳 -1.0，代表「未實作」。
+    double GetHolDelayMs(uint32_t utNodeId) const;
+
+    // 輸出所有 UT 的 HOL delay 統計（最小 / 最大 / 平均）。
+    // Stub 狀態：印出未實作提示及實作路徑說明。
+    void PrintReport() const;
+
+  private:
+    bool m_enabled{false};  // true 代表已成功連接 trace source（Stub 下永遠是 false）
+};
+
 // ── IslRoutingManager ─────────────────────────────────────────────────────
 
 class IslRoutingManager : public Object
@@ -130,6 +182,10 @@ class IslRoutingManager : public Object
 
     // ── Stats ──────────────────────────────────────────────────────────────
     void PrintStats() const;
+
+    // PrintLoadStats: 輸出所有 ISL 的最終 EMA load cost（queue delay，單位 ms）。
+    // 有流量通過的 ISL 會顯示非零值，可用來驗證流量是否確實走過 ISL 層。
+    void PrintLoadStats() const;
 
     // ── Accessors for Layer 2/3 ────────────────────────────────────────────
     uint32_t GetNumTimeSlots()     const { return m_numTimeSlots; }
