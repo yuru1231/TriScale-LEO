@@ -172,14 +172,24 @@ IslRoutingManager::PrecomputeAllTables()
         RoutingTable routes = ComputeBaseRoutes(graphCurr);
         long dijkstraMs = WALL_END_MS(slot);
 
-        // 使用下一 slot 的圖做 tiebreaker，減少不必要的路由切換
+        // NOTE（dead code 清理）：
+        //   ApplyTiebreaker 呼叫已移除。原因：
+        //   ComputeRoutesForSrc 對每個 dest 只 push_back 一筆 RouteEntry，
+        //   導致 destToIndices[dest].size() 永遠 == 1，
+        //   tie-breaking 分支（indices.size() <= 1 continue）永遠跳過，
+        //   整個函式是 no-op 且會白建一張 graphNext 圖。
+        //
+        //   若未來要啟用 stability-preference tiebreaking，需：
+        //     1. 改造 Dijkstra，在 nd == dist[e.nodeB] 時也記錄 alternative first-hop
+        //     2. entries 允許同一 dest 出現多筆（不同 nextHopSatId）
+        //     3. ApplyTiebreaker 才能從多筆中選出在 graphNext 仍有效的那筆
+        //
+        //   目前仍推進 graphCurr，確保下一 slot 從正確的衛星位置圖出發。
         if (k < m_numTimeSlots - 1)
         {
             Time tauNext = Seconds(m_timeSlotInterval * (k + 1));
             std::vector<Vector> posNext = GetPositionsAt(tauNext);
-            ISLGraph graphNext = BuildISLGraph(posNext);
-            routes = ApplyTiebreaker(routes, graphNext);
-            graphCurr = std::move(graphNext);
+            graphCurr = BuildISLGraph(posNext); // advance for next slot
         }
 
         m_tables[k] = std::move(routes);
@@ -664,6 +674,11 @@ IslRoutingManager::RecomputeAffectedRoutes(uint32_t slotIndex)
     m_lastRecomputeTime = now;
     RebuildIslSources(slotIndex);
 
+    // Bug 4 fix：m_tables[slotIndex] 已被部分重算，同步更新 GW/UT 路由報表，
+    // 避免 PrintGwRouteReport / GetGwRoute 與實際 forwarding path 脫節。
+    if (recomputedCount > 0)
+        RefreshGwRoutesForSlot(slotIndex);
+
     return recomputedCount;
 }
 
@@ -719,6 +734,25 @@ IslRoutingManager::LoadISLDefs(const std::string& islsFilePath)
         uint32_t a = 0;
         uint32_t b = 0;
         iss >> a >> b;
+
+        // 防呆 1：解析失敗（格式錯誤 / 非數字）→ 跳過並警告
+        if (iss.fail())
+        {
+            std::cerr << "[LoadISLDefs] WARN: failed to parse line '"
+                      << line << "', skipping\n";
+            continue;
+        }
+
+        // 防呆 2：衛星 ID 超界 → 立即 fatal，避免 out-of-bounds UB
+        // 常見原因：isls.txt 與 NumSatellites 屬性不一致
+        if (a >= m_numSatellites)
+            NS_FATAL_ERROR("LoadISLDefs: node a=" << a
+                           << " >= numSatellites=" << m_numSatellites
+                           << " (line: '" << line << "')");
+        if (b >= m_numSatellites)
+            NS_FATAL_ERROR("LoadISLDefs: node b=" << b
+                           << " >= numSatellites=" << m_numSatellites
+                           << " (line: '" << line << "')");
 
         uint32_t edgeIdx = static_cast<uint32_t>(m_islDefs.size());
         m_islDefs.push_back({a, b});
@@ -1129,6 +1163,12 @@ IslRoutingManager::AddGateway(uint32_t           gwId,
 void
 IslRoutingManager::AddGwPair(uint32_t gwA, uint32_t gwB)
 {
+    // 防呆：未透過 AddGateway 註冊的 ID → 立即 fatal，避免在報表時靜默失敗
+    NS_ASSERT_MSG(m_gwIdToIdx.count(gwA),
+                  "AddGwPair: gwA=" << gwA << " not registered — call AddGateway() first");
+    NS_ASSERT_MSG(m_gwIdToIdx.count(gwB),
+                  "AddGwPair: gwB=" << gwB << " not registered — call AddGateway() first");
+
     // 雙向插入，正反向各自獨立計算最佳路由
     m_gwPairs.insert({gwA, gwB});
     m_gwPairs.insert({gwB, gwA});
@@ -1442,6 +1482,12 @@ IslRoutingManager::AddUserTerminal(uint32_t           utId,
 void
 IslRoutingManager::AddGwUtPair(uint32_t gwId, uint32_t utId)
 {
+    // 防呆：未透過 AddGateway / AddUserTerminal 註冊的 ID → 立即 fatal
+    NS_ASSERT_MSG(m_gwIdToIdx.count(gwId),
+                  "AddGwUtPair: gwId=" << gwId << " not registered — call AddGateway() first");
+    NS_ASSERT_MSG(m_utIdToIdx.count(utId),
+                  "AddGwUtPair: utId=" << utId << " not registered — call AddUserTerminal() first");
+
     m_gwUtPairs.insert({gwId, utId});
 }
 
@@ -1576,6 +1622,131 @@ IslRoutingManager::PrecomputeGwUtRoutes()
 
     long gwutMs = WALL_END_MS(gwut);
     CHKPT("PrecomputeGwUtRoutes: done | wall=" << gwutMs << "ms");
+}
+
+// ── RefreshGwRoutesForSlot ────────────────────────────────────────────────
+//
+// 設計目的：
+//   RecomputeAffectedRoutes() 更新 m_tables[slotIndex] 後，
+//   重新以最新 GetRouteCost() 計算 m_gwRoutes / m_gwUtRoutes，
+//   確保路由報表與實際 forwarding path 不脫節。
+//
+// 前提：m_gwVisibility / m_utVisibility 在 precompute 階段計算完畢，
+//   執行期不因 load recompute 改變（衛星位置不動），故不重算。
+// no-op 條件：
+//   - m_gwRoutes 尚未初始化（PrecomputeGwRoutes 未呼叫）
+//   - slotIndex 超出範圍
+void
+IslRoutingManager::RefreshGwRoutesForSlot(uint32_t slotIndex)
+{
+    // ── GW-to-GW 路由刷新 ─────────────────────────────────────────────────
+    if (slotIndex < m_gwRoutes.size())
+    {
+        for (const auto& p : m_gwPairs)
+        {
+            uint32_t gwA = p.first;
+            uint32_t gwB = p.second;
+
+            // 只處理 gwA < gwB，避免重複計算（gwPairs 含正反向）
+            if (gwA >= gwB)
+                continue;
+
+            const auto& srcSatsAB = GetGwVisibleSats(gwA, slotIndex);
+            const auto& dstSatsAB = GetGwVisibleSats(gwB, slotIndex);
+
+            // A → B
+            GwToGwRoute bestAB;
+            bestAB.srcGwId = gwA;
+            bestAB.dstGwId = gwB;
+
+            for (uint32_t entry : srcSatsAB)
+            {
+                for (uint32_t exit : dstSatsAB)
+                {
+                    double cost = (entry == exit)
+                                      ? 0.0
+                                      : GetRouteCost(entry, exit, slotIndex);
+                    if (cost < bestAB.islCost)
+                    {
+                        bestAB.entrySatId = entry;
+                        bestAB.exitSatId  = exit;
+                        bestAB.islCost    = cost;
+                        bestAB.satPath    = (entry == exit)
+                                                ? std::vector<uint32_t>{entry}
+                                                : TracePath(entry, exit, slotIndex);
+                        bestAB.valid      = true;
+                    }
+                }
+            }
+
+            // B → A
+            GwToGwRoute bestBA;
+            bestBA.srcGwId = gwB;
+            bestBA.dstGwId = gwA;
+
+            for (uint32_t entry : dstSatsAB)
+            {
+                for (uint32_t exit : srcSatsAB)
+                {
+                    double cost = (entry == exit)
+                                      ? 0.0
+                                      : GetRouteCost(entry, exit, slotIndex);
+                    if (cost < bestBA.islCost)
+                    {
+                        bestBA.entrySatId = entry;
+                        bestBA.exitSatId  = exit;
+                        bestBA.islCost    = cost;
+                        bestBA.satPath    = (entry == exit)
+                                                ? std::vector<uint32_t>{entry}
+                                                : TracePath(entry, exit, slotIndex);
+                        bestBA.valid      = true;
+                    }
+                }
+            }
+
+            m_gwRoutes[slotIndex][{gwA, gwB}] = bestAB;
+            m_gwRoutes[slotIndex][{gwB, gwA}] = bestBA;
+        }
+    }
+
+    // ── GW-to-UT 路由刷新 ─────────────────────────────────────────────────
+    if (slotIndex < m_gwUtRoutes.size())
+    {
+        for (const auto& p : m_gwUtPairs)
+        {
+            uint32_t gwId = p.first;
+            uint32_t utId = p.second;
+
+            const auto& entrySats   = GetGwVisibleSats(gwId, slotIndex);
+            const auto& servingSats = GetUtVisibleSats(utId, slotIndex);
+
+            GwToUtRoute best;
+            best.gwId = gwId;
+            best.utId = utId;
+
+            for (uint32_t entry : entrySats)
+            {
+                for (uint32_t serving : servingSats)
+                {
+                    double cost = (entry == serving)
+                                      ? 0.0
+                                      : GetRouteCost(entry, serving, slotIndex);
+                    if (cost < best.islCost)
+                    {
+                        best.entrySatId   = entry;
+                        best.servingSatId = serving;
+                        best.islCost      = cost;
+                        best.satPath      = (entry == serving)
+                                                ? std::vector<uint32_t>{entry}
+                                                : TracePath(entry, serving, slotIndex);
+                        best.valid        = true;
+                    }
+                }
+            }
+
+            m_gwUtRoutes[slotIndex][{gwId, utId}] = best;
+        }
+    }
 }
 
 // ── GetGwUtRoute ──────────────────────────────────────────────────────────

@@ -8,11 +8,13 @@
 
 #include <chrono>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <map>
 
 using namespace ns3;
 
@@ -29,14 +31,14 @@ ConfigureQoS()
 //
 // 觀察 SatRequestManager 的 RBDC（Rate-Based Dynamic Capacity）容量請求。
 //
-// RBDC 機制說明：
-//   - 作用方向：RTN link（UT → GW），UT 向 NCC 申請傳輸容量
-//   - 觸發點：SatRequestManager::DoRbdcLegacy()
+// RBDC ：
+//   - 方向：RTN link（UT → GW），UT 向 NCC 申請傳輸容量
+//   - trig：SatRequestManager::DoRbdcLegacy()
 //             根據 SatQueue::QueueStats_t（incomingRateKbps + queueSizeBytes）
 //             計算需求速率後呼叫 m_rbdcTrace(rbdcRateKbps)
-//   - 週期：每超幀（~26ms）一次
+//   - period：per time/frame（~26ms）
 //
-// Trace source 正確路徑（來自官方範例 sat-rtn-system-test-example.cc）：
+// Trace source （sat-rtn-system-test-example.cc）：
 //   /NodeList/*/DeviceList/*/SatLlc/SatRequestManager/RbdcTrace
 //   注意：是 SatLlc，不是 SatMac
 //
@@ -55,14 +57,181 @@ RbdcTraceCallback(uint32_t requestKbps)
     }
 }
 
+// ── ISL 封包丟棄率追蹤 ─────────────────────────────────────────────────────
+//
+// 追蹤每條 ISL 上的封包丟棄率，提供比received > 0更精確的驗證指標。
+//
+// 實作依據：
+//   - TraceSource：PointToPointIslNetDevice::PacketDropRateTrace
+//     (model/satellite-point-to-point-isl-net-device.cc)
+//   - Callback 簽名：void(uint32_t pktSize, Ptr<Node> src, Ptr<Node> dst, bool dropped)
+//     dropped=true  → 封包因 queue full 或 error model 被丟棄
+//     dropped=false → 封包成功入列（注意：這裡計的是「嘗試入列」，不是「成功送達」）
+//   - ISL key 格式：satSrcId-satDstId，與 SatStatsHelper::GetIdentifierForIsl 一致
+//
+// Pass/Fail 標準：整體丟棄率 < islDropThreshPct（預設 1.0%）
+
+struct IslDropStats
+{
+    uint64_t total{0};    // 嘗試傳送的封包總數（含成功與丟棄）
+    uint64_t dropped{0};  // 被丟棄的封包數
+};
+
+// 全域查找表：Ptr<Node> → satellite index（避免 callback 內 O(n) 遍歷）
+static std::map<Ptr<Node>, uint32_t>       g_nodeToSatId;
+// 全域統計：key = "satSrcId-satDstId"
+static std::map<std::string, IslDropStats> g_islDropStats;
+
+// PacketDropRateTrace callback
+// 每次 PointToPointIslNetDevice 嘗試入列封包時觸發（包含成功與丟棄兩種情況）
+static void
+IslPacketDropCallback(uint32_t /*pktSize*/, Ptr<Node> srcNode, Ptr<Node> dstNode, bool dropped)
+{
+    auto srcIt = g_nodeToSatId.find(srcNode);
+    auto dstIt = g_nodeToSatId.find(dstNode);
+    if (srcIt == g_nodeToSatId.end() || dstIt == g_nodeToSatId.end())
+        return;
+
+    std::string key = std::to_string(srcIt->second) + "-" + std::to_string(dstIt->second);
+    g_islDropStats[key].total++;
+    if (dropped)
+        g_islDropStats[key].dropped++;
+}
+
+// 在 CreateSatScenario() 之後呼叫：建立 node→satId 查找表，並掛接所有 ISL 的 trace
+// 回傳成功掛接的介面數（每條雙向 link 有 2 個介面，unique link 數 = 回傳值 / 2）
+static uint32_t
+ConnectIslDropTrace()
+{
+    NodeContainer sats = Singleton<SatTopology>::Get()->GetOrbiterNodes();
+
+    // 預建查找表
+    g_nodeToSatId.clear();
+    for (uint32_t i = 0; i < sats.GetN(); ++i)
+        g_nodeToSatId[sats.Get(i)] = i;
+
+    uint32_t connected = 0;
+    for (uint32_t i = 0; i < sats.GetN(); ++i)
+    {
+        Ptr<Node> satNode = sats.Get(i);
+        for (uint32_t d = 0; d < satNode->GetNDevices(); ++d)
+        {
+            Ptr<SatOrbiterNetDevice> orbDev =
+                DynamicCast<SatOrbiterNetDevice>(satNode->GetDevice(d));
+            if (!orbDev) continue;
+
+            // 掛接此衛星上每個 ISL 介面的 PacketDropRateTrace
+            for (auto& islDev : orbDev->GetIslsNetDevices())
+            {
+                if (islDev->TraceConnectWithoutContext(
+                        "PacketDropRateTrace",
+                        MakeCallback(&IslPacketDropCallback)))
+                    ++connected;
+            }
+            break;  // 每個 node 只有一個 SatOrbiterNetDevice
+        }
+    }
+    // connected 為有向介面數；每條雙向 link = 2 介面，故 unique link = connected / 2
+    std::cout << "[ISL_DROP] trace connected: " << connected
+              << " ISL interfaces (" << connected / 2 << " unique links)\n";
+    return connected;
+}
+
+// 輸出 ISL 丟棄率與傳輸成功率統計，並依 threshPct 判定 PASS / FAIL
+// connectedInterfaces：ConnectIslDropTrace() 的回傳值，用於無事件時的 FAIL 判斷
+// 只輸出有丟棄的 ISL 明細，所有 ISL 的合計納入整體統計
+static void
+PrintIslDropStats(double threshPct, uint32_t connectedInterfaces)
+{
+    std::cout << "\n=== ISL Packet Drop Rate Summary ===\n";
+
+    // 無事件：可能是 trace 未連接，或流量完全沒通過 ISL，兩者都是異常 → FAIL
+    if (g_islDropStats.empty())
+    {
+        if (connectedInterfaces == 0)
+            std::cout << "  [FAIL] trace connection failed (0 interfaces connected)\n";
+        else
+            std::cout << "  [FAIL] " << connectedInterfaces
+                      << " interfaces connected but 0 events recorded\n"
+                      << "         (traffic may not have reached ISL layer)\n";
+        std::cout << "=====================================\n\n";
+        return;
+    }
+
+    // 統計有丟棄的 ISL 明細
+    struct DropRow
+    {
+        std::string isl;
+        uint64_t    total;
+        uint64_t    dropped;
+        double      dropRate;
+        double      successRate;
+    };
+    std::vector<DropRow> rows;
+    uint64_t sumTotal = 0, sumDropped = 0;
+
+    for (const auto& kv : g_islDropStats)
+    {
+        sumTotal   += kv.second.total;
+        sumDropped += kv.second.dropped;
+        if (kv.second.dropped > 0)
+        {
+            double dr = 100.0 * kv.second.dropped / kv.second.total;
+            double sr = 100.0 - dr;
+            rows.push_back({kv.first, kv.second.total, kv.second.dropped, dr, sr});
+        }
+    }
+
+    if (!rows.empty())
+    {
+        // 欄寬：ISL(14) total_pkts(12) dropped(10) drop_rate(14) success_rate
+        std::cout << std::left
+                  << std::setw(14) << "ISL"
+                  << std::setw(12) << "total_pkts"
+                  << std::setw(10) << "dropped"
+                  << std::setw(14) << "drop_rate(%)"
+                  << "success_rate(%)\n"
+                  << std::string(62, '-') << "\n";
+
+        for (const auto& r : rows)
+        {
+            std::cout << std::left
+                      << std::setw(14) << r.isl
+                      << std::setw(12) << r.total
+                      << std::setw(10) << r.dropped
+                      << std::setw(14) << (std::to_string(static_cast<int>(r.dropRate * 1000) / 1000.0).substr(0, 6))
+                      << std::fixed << std::setprecision(3) << r.successRate << "\n";
+        }
+        std::cout << std::string(62, '-') << "\n";
+    }
+    else
+    {
+        std::cout << "  (all ISLs: 0 drops)\n";
+    }
+
+    double overallDrop    = (sumTotal > 0) ? (100.0 * sumDropped / sumTotal) : 0.0;
+    double overallSuccess = 100.0 - overallDrop;
+    std::cout << "TOTAL: " << sumTotal << " pkts, "
+              << sumDropped << " dropped | "
+              << "drop_rate=" << std::fixed << std::setprecision(3) << overallDrop << "% | "
+              << "success_rate=" << std::fixed << std::setprecision(3) << overallSuccess << "%\n";
+
+    if (overallDrop < threshPct)
+        std::cout << "[PASS] overall ISL drop rate < " << threshPct << "%\n";
+    else
+        std::cout << "[FAIL] overall ISL drop rate = " << overallDrop
+                  << "% >= threshold " << threshPct << "%\n";
+
+    std::cout << "=====================================\n\n";
+}
+
 // ── 流量配置 ──────────────────────────────────────────────────────────────
-// trafficProfile 決定「怎麼裝背景流量」：
-//   none     : 不裝流量（純 baseline）
-//   gw2ut    : 原本正常 GW→UT / UT→GW 業務流
-//   sat2sat  : 用較強背景流量製造 ISL queue 壓力，驗證 Arbiter / load-aware reroute
+// trafficProfile ：
+//   none     : 不裝流量
+//   gw2ut    :  GW→UT / UT→GW 
+//   sat2sat  : 強背景流量製造 ISL queue 壓力，驗證 Arbiter / load-aware reroute
 //   gw2gw    : 用 GW 端背景流量驅動 queue / capacity-request 決策，再觀察 gw2gw 路由報告
 //
-// 注意：基於目前可見的 SatTrafficHelper API，這裡採「可控背景流量注入」；
 // 並沒有硬做一個未經證實的 direct GW↔GW 或 SAT↔SAT app endpoint。
 struct TrafficConfig
 {
@@ -436,6 +605,8 @@ main(int argc, char* argv[])
 
     std::string mode         = "gw2gw";  // sat2sat | gw2gw | gw2ut
     std::string trafficProf  = "none";   // none | gw2ut | sat2sat | gw2gw
+    bool        rbdcVerbose     = false;  // true = 輸出每筆 RBDC request；false = 靜默（避免大量 log）
+    double      islDropThreshPct = 1.0;  // ISL 整體丟棄率 PASS 門檻（%），預設 1%
 
     double      simTime      = 630.0;
     double      slotInterval = 60.0;
@@ -468,6 +639,8 @@ main(int argc, char* argv[])
     CommandLine cmd;
     cmd.AddValue("mode",          "Routing case: sat2sat | gw2gw | gw2ut", mode);
     cmd.AddValue("trafficProfile","none | gw2ut | sat2sat | gw2gw | gw2gw_direct", trafficProf);
+    cmd.AddValue("rbdcVerbose",      "Print each RBDC request (1=on, 0=off, default=0)", rbdcVerbose);
+    cmd.AddValue("islDropThreshPct", "ISL overall drop rate PASS threshold (%, default=1.0)", islDropThreshPct);
 
     cmd.AddValue("simTime",       "Simulation duration (s)", simTime);
     cmd.AddValue("slotInterval",  "Routing slot interval (s)", slotInterval);
@@ -549,14 +722,29 @@ main(int argc, char* argv[])
     simHelper->SetUserCountPerUt(1);
     simHelper->CreateSatScenario();
 
+    // ── ISL Drop Rate Trace 連接 ───────────────────────────────────────────
+    // 必須在 CreateSatScenario() 之後，ISL net device 才存在
+    // 回傳值傳給 PrintIslDropStats，用於無事件時的 FAIL 診斷
+    uint32_t islConnected = ConnectIslDropTrace();
+
     // ── RBDC Trace 連接 ─────────────────────────────────────────────────────
     // 必須在 CreateSatScenario() 之後掛接，否則 UT 設備尚未存在，
     // ConnectWithoutContext 會連到 0 個物件（不報錯但永遠沒有輸出）。
     // 路徑來自官方範例 sat-rtn-system-test-example.cc:354。
-    Config::ConnectWithoutContext(
-        "/NodeList/*/DeviceList/*/SatLlc/SatRequestManager/RbdcTrace",
-        MakeCallback(&RbdcTraceCallback));
-    std::cout << "[RBDC] trace connected: SatLlc/SatRequestManager/RbdcTrace\n";
+    //
+    // rbdcVerbose=false（預設）時跳過連接，避免 91 UT × 26ms 週期產生大量 log。
+    // 需要觀察 RBDC 行為時，加 --rbdcVerbose=1 重新執行即可。
+    if (rbdcVerbose)
+    {
+        Config::ConnectWithoutContext(
+            "/NodeList/*/DeviceList/*/SatLlc/SatRequestManager/RbdcTrace",
+            MakeCallback(&RbdcTraceCallback));
+        std::cout << "[RBDC] trace connected: SatLlc/SatRequestManager/RbdcTrace\n";
+    }
+    else
+    {
+        std::cout << "[RBDC] trace skipped (rbdcVerbose=0, use --rbdcVerbose=1 to enable)\n";
+    }
 
     // ── 流量安裝：由 trafficProfile 決定，不再硬綁 mode ───────────────────
     InstallTrafficByProfile(simHelper,
@@ -625,6 +813,9 @@ main(int argc, char* argv[])
     // 輸出最終 EMA queue delay（ms）
     // 用來驗證流量是否真的形成 ISL queue load
     routingMgr->PrintLoadStats();
+
+    // 輸出 ISL 封包丟棄率與傳輸成功率統計，並依 islDropThreshPct 判定 PASS / FAIL
+    PrintIslDropStats(islDropThreshPct, islConnected);
 
     auto wallEnd = std::chrono::steady_clock::now();
     auto wallMs  = std::chrono::duration_cast<std::chrono::milliseconds>(

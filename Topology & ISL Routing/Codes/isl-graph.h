@@ -278,6 +278,12 @@ class IslRoutingManager : public Object
     void LoadISLDefs(const std::string& islsFilePath);
     void InitOrbiterDevices();
 
+    // RefreshGwRoutesForSlot: load-aware recompute 後同步更新指定 slot 的
+    // m_gwRoutes 與 m_gwUtRoutes，使 PrintGwRouteReport / GetGwRoute 的結果
+    // 與實際 forwarding path 保持一致。
+    // 若 PrecomputeGwRoutes / PrecomputeGwUtRoutes 尚未執行，則為 no-op。
+    void RefreshGwRoutesForSlot(uint32_t slotIndex);
+
     // ── 仰角計算（GW / UT 共用）────────────────────────────────────────────
     // 計算從地面觀測點 (obsLatDeg, obsLonDeg) 到衛星 ECEF 位置的仰角（度）
     static double ComputeElevationDeg(double obsLatDeg, double obsLonDeg,

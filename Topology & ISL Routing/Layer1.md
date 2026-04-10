@@ -44,6 +44,15 @@ PrecomputeAllTables()  ← 離線計算所有時槽的路由表（11 slots，0�
                                      ├─ 枚舉 entry × serving 組合，呼叫 GetRouteCost(entry,serving,slot)
                                      └─ PrintGwUtRouteReport() → 輸出 entry / ISL_path / serving / isl_cost
 
+[test-iridium.cc 初始化段]
+CreateSatScenario()
+   │
+   ▼
+ConnectIslDropTrace()  ← 掛接所有 ISL PointToPointIslNetDevice 的 PacketDropRateTrace
+   │                      回傳 connected 介面數（每條雙向 link = 2 介面，unique link 數 = 回傳值 / 2）
+   │                      寫入 g_nodeToSatId（Ptr<Node> → satId 查找表）
+   │                      寫入 g_islDropStats（key="satSrc-satDst"，逐封包累計 total / dropped）
+   │
 ScheduleRoutingUpdates() ← 排入 N 個 NS3 事件，每 slotInterval 秒觸發一次
    │
    ▼  (Simulator::Run 期間)
@@ -53,13 +62,23 @@ ApplyRoutingTable(slotIndex)
    │  ├─ RecomputeAffectedRoutes()  → 只重算受影響 source 的路由（局部 Dijkstra）
    │  └─ ClearNextHopEntries() + AddNextHopEntry() → 將新的 next-hop 規則寫入各衛星的 Arbiter，作為實際轉送依據
    │
+   ▼  (Simulator::Run 結束後)
+PrintStats()      ← 輸出每槽的 apply / recompute 耗時
+PrintLoadStats()  ← 輸出各 ISL 的最終 EMA load cost（queue delay，ms），驗證流量是否走過 ISL
+   │
    ▼
-PrintStats()  ← 輸出每槽的 apply / recompute 耗時
+PrintIslDropStats(threshPct, connectedInterfaces)
+   ├─ g_islDropStats 為空 → [FAIL]（0 介面 or 流量未到達 ISL 層）
+   ├─ 有丟棄的 ISL → 輸出明細表（ISL / total_pkts / dropped / drop_rate(%) / success_rate(%)）
+   ├─ overall drop_rate < threshPct → [PASS]
+   └─ overall drop_rate >= threshPct → [FAIL]
 ```
 
 ---
 
 ## 核心資料結構
+
+### isl-graph.h 定義
 
 | 結構 | 說明 |
 |------|------|
@@ -73,6 +92,14 @@ PrintStats()  ← 輸出每槽的 apply / recompute 耗時
 | `GwToGwRoute` | `{srcGwId, dstGwId, entrySatId, exitSatId, satPath, islCost, valid}`  一條 GW→GW 路由結果 |
 | `UtDef` | `{utId, latDeg, lonDeg, name}`  使用者終端定義 |
 | `GwToUtRoute` | `{gwId, utId, entrySatId, servingSatId, satPath, islCost, valid}`  一條 GW→UT 路由結果 |
+
+### test-iridium.cc 驗證輔助（anonymous namespace）
+
+| 結構 / 全域變數 | 說明 |
+|---|---|
+| `IslDropStats` | `{total, dropped}` 單條 ISL 的傳送嘗試與丟棄封包計數 |
+| `g_nodeToSatId` | `map<Ptr<Node>, uint32_t>` Node 指標 → 衛星序號查找表 |
+| `g_islDropStats` | `map<string, IslDropStats>` key = `"satSrcId-satDstId"`，逐條 ISL 統計 |
 
 ---
 
@@ -93,6 +120,30 @@ PrintStats()  ← 輸出每槽的 apply / recompute 耗時
 | `ChangeThreshold` | double | 0.1 | 觸發重算的 load cost 變化比例 |
 | `CooldownSeconds` | double | 30.0 | 兩次重算的最短間隔（秒） |
 | `IslLinkRateBps` | double | 10e6 | ISL 鏈路速率（用於計算 queue delay） |
+
+### test-iridium.cc 命令列參數（cmd.AddValue）
+
+| 參數 | 型別 | 預設值 | 說明 |
+|------|------|--------|------|
+| `--mode` | string | `gw2gw` | 路由場景：`sat2sat` / `gw2gw` / `gw2ut` |
+| `--trafficProfile` | string | `none` | 流量配置：`none` / `gw2ut` / `sat2sat` / `gw2gw` / `gw2gw_direct` |
+| `--simTime` | double | 630.0 | 模擬時長（秒） |
+| `--slotInterval` | double | 60.0 | 路由更新間隔（秒） |
+| `--gwSrc` | uint32 | 0 | gw2gw 模式：來源 GW preset ID（0=TW / 1=JP / 2=US） |
+| `--gwDst` | uint32 | 1 | gw2gw 模式：目標 GW preset ID（0=TW / 1=JP / 2=US） |
+| `--gwId` | uint32 | 0 | gw2ut 模式：GW preset ID |
+| `--utId` | uint32 | 0 | gw2ut 模式：UT ID |
+| `--utLatDeg` / `--utLonDeg` | double | — | gw2ut 模式：UT 座標 |
+| `--rbdcVerbose` | bool | false | 是否輸出每筆 RBDC request（91 UT × ~26ms 週期，大量 log） |
+| `--islDropThreshPct` | double | 1.0 | ISL 整體丟棄率 PASS 門檻（%） |
+
+**GW Preset 對照（gwSrc / gwDst / gwId）：**
+
+| ID | 名稱 | 緯度 | 經度 |
+|----|------|------|------|
+| 0 | TW-Taipei | 25.0°N | 121.5°E |
+| 1 | JP-Tokyo | 35.7°N | 139.7°E |
+| 2 | US-SanFrancisco | 37.8°N | 122.4°W |
 
 ### 初始化順序
 
@@ -117,23 +168,52 @@ mgr->ScheduleRoutingUpdates();
 
 ### 公開方法
 
+#### 核心 Lifecycle
+
 | 方法 |  說明 |
 |------|------|
 | `Initialize(islsFilePath)` |  讀 ISL 定義、快取衛星裝置、初始化 load cost 陣列 |
 | `PrecomputeAllTables()` |  離線計算所有時槽路由表，存入 `m_tables` |
 | `ScheduleRoutingUpdates()` |  排入 N 個 NS3 排程事件 |
 | `ApplyRoutingTable(slotIndex)` |  更新 Arbiter（含負載感知重算邏輯） |
-| `PrintStats()` |  輸出各槽執行統計 |
+
+#### 統計輸出
+
+| 方法 |  說明 |
+|------|------|
+| `PrintStats()` |  輸出各槽 apply / recompute 執行時間統計 |
+| `PrintLoadStats()` |  輸出各 ISL 最終 EMA load cost（queue delay，ms）；有流量時非零，可驗證流量是否走過 ISL |
 | `PrintRouteReport(pairs)` |  輸出 sat2sat 每槽完整路徑報告 |
+
+#### 路由查詢 / 診斷
+
+| 方法 |  說明 |
+|------|------|
 | `GetRouteCost(entry, exit, slot)` | 取得兩衛星間在指定時槽的路由 cost（供 GW/UT 路由呼叫） |
+| `TracePath(src, dst, slot)` | 依 routing table 重建 src→dst 完整跳數序列；目的不可達時最後元素為 `UINT32_MAX` |
+| `BlockISL(a, b)` / `UnblockISL(a, b)` | 暫時標記 ISL 為不可用（供 `RunAvoidanceTest` 使用） |
+| `RunAvoidanceTest(src, dst, slot)` | 封鎖路徑第一條 ISL，離線重算，驗證 (a) 封鎖 ISL 不出現於新路徑，(b) 無殘留舊 next-hop |
+
+#### v6 GW-to-GW 路由 API
+
+| 方法 |  說明 |
+|------|------|
 | `AddGateway(id, lat, lon, name)` |  登記一個 GW |
 | `AddGwPair(srcGwId, dstGwId)` |  登記一對要計算的 GW pair |
+| `SetGwElevationThreshold(deg)` | 設定仰角門檻（預設 5°） |
 | `PrecomputeGwRoutes()` |  對所有已登記 GW pair 離線計算各時槽最佳路由 |
-| `PrintGwRouteReport()` |  輸出 GW-to-GW Route Report（v6 格式）|
+| `GetGwRoute(srcGwId, dstGwId, slot)` | 取得指定 GW pair 在指定時槽的路由結果 |
+| `PrintGwRouteReport()` |  輸出 GW-to-GW Route Report（entry / ISL_path / exit / isl_cost）|
+
+#### v7 GW-to-UT 路由 API
+
+| 方法 |  說明 |
+|------|------|
 | `AddUserTerminal(id, lat, lon, name)` |  登記一個 UT |
 | `AddGwUtPair(gwId, utId)` | 登記一對要計算的 GW–UT pair |
 | `PrecomputeGwUtRoutes()` |  對所有已登記 GW–UT pair 離線計算各時槽最佳路由 |
-| `PrintGwUtRouteReport()` | 輸出 GW-to-UT Route Report（v7 格式，含 serving 欄）|
+| `GetGwUtRoute(gwId, utId, slot)` | 取得指定 GW-UT pair 在指定時槽的路由結果 |
+| `PrintGwUtRouteReport()` | 輸出 GW-to-UT Route Report（entry / ISL_path / serving / isl_cost）|
 
 ---
 
@@ -155,6 +235,54 @@ mgr->ScheduleRoutingUpdates();
 
 ---
 
+## ISL 驗證機制（test-iridium.cc）
+
+以下驗證邏輯定義於 test-iridium.cc 的 anonymous namespace，**不屬於 IslRoutingManager**，而是測試腳本層的驗證機制。
+
+### ConnectIslDropTrace()
+
+**作用**：在 `CreateSatScenario()` 之後掛接所有 ISL 裝置的 `PacketDropRateTrace`。
+
+**實作流程**：
+1. 取得所有衛星 Node（`SatTopology::GetOrbiterNodes()`）
+2. 建立 `g_nodeToSatId`（`Ptr<Node>` → satId）查找表
+3. 遍歷每顆衛星的 `SatOrbiterNetDevice`，取得其 `GetIslsNetDevices()` 清單
+4. 對每個 `PointToPointIslNetDevice` 呼叫 `TraceConnectWithoutContext("PacketDropRateTrace", ...)`
+5. 回傳成功掛接的介面數（每條雙向 link = 2 介面，unique link 數 = 回傳值 / 2）
+
+**輸出範例**：
+```
+[ISL_DROP] trace connected: 264 ISL interfaces (132 unique links)
+```
+
+### IslPacketDropCallback()
+
+**callback 觸發時機**：每次 `PointToPointIslNetDevice` 嘗試入列封包時（包含成功與丟棄兩種結果）。
+
+**callback 簽名**：`void(uint32_t pktSize, Ptr<Node> srcNode, Ptr<Node> dstNode, bool dropped)`
+
+**行為**：根據 `g_nodeToSatId` 找出 satSrcId / satDstId，以 `"srcId-dstId"` 為 key 累計 `g_islDropStats` 的 `total` 與 `dropped`。
+
+> 注意：`dropped=false` 表示成功入列；`dropped=true` 表示佇列滿導致丟棄。此 trace 計的是「入列嘗試」，不是「端到端送達」。
+
+### PrintIslDropStats(threshPct, connectedInterfaces)
+
+**判斷邏輯**：
+
+| 條件 | 輸出 |
+|------|------|
+| `g_islDropStats` 為空 且 `connectedInterfaces == 0` | `[FAIL] trace connection failed` |
+| `g_islDropStats` 為空 且 `connectedInterfaces > 0` | `[FAIL] X interfaces connected but 0 events recorded` |
+| 有丟棄的 ISL | 輸出明細表（ISL / total_pkts / dropped / drop_rate(%) / success_rate(%)） |
+| `overall_drop < threshPct` | `[PASS]` |
+| `overall_drop >= threshPct` | `[FAIL]` |
+
+**TOTAL 行格式**：
+```
+TOTAL: N pkts, M dropped | drop_rate=X.XXX% | success_rate=Y.YYY%
+```
+
+---
 
 ## SNS3 原始碼修改
 
@@ -223,6 +351,8 @@ helper/ft-filter.h
 ## Layer 1 Extension：FtVisibilityFilter
 
 **位置**：`contrib/satellite/helper/ft-filter.h/.cc`
+
+> **目前狀態**：`ft-filter.h/.cc` 已實作，但 **test-iridium.cc 尚未整合使用**。以下為類別設計文件，供後續整合參考。
 
 **功能**：基於 FT（Feeder Terminal）合約關係過濾可用路由，只允許有合約的 FT pair 之間建立路徑，兩地面站在某時槽下皆具衛星可見性，若未建立合約 pair，系統仍不產生對應 transit route。
 
@@ -463,6 +593,52 @@ Wall time: 2921.66s
 
 ---
 
+### trafficProfile=gw2gw_direct（TW-Taipei → US-SanFrancisco，端到端資料平面驗證，630s）
+
+```bash
+./ns3 run "scratch/test-iridium \
+  --mode=gw2gw \
+  --trafficProfile=gw2gw_direct \
+  --simTime=630 \
+  --gwSrc=0 \
+  --gwDst=2 \
+  --islDropThreshPct=1.0"
+```
+
+> 注意：此場景必須用 `--gwDst=2`（US-SanFrancisco）。GW preset ID 只有 0/1/2，不存在 ID=3。
+
+**端到端結果：**
+
+```
+[GW2GW_DIRECT] GW0_user=90.2.0.2  ->  GW2_user=90.2.0.4  start=1s  stop=629s
+received: 3,214,848 bytes (~6279 pkts)
+[PASS] received>0 → 端到端 ISL 路徑驗證成功！
+```
+
+**路由切換表（TW-Taipei → US-SanFrancisco）：**
+
+| slot | time(s) | GW0 可見衛星數 | GW2 可見衛星數 | entry / ISL_path / exit | isl_cost(s) |
+|------|---------|--------------|--------------|------------------------|-------------|
+| 0 | 0 | 2 | 1 | 15 / `15->14->25->36->37` / 37 | 0.043969 |
+| 1 | 60 | 1 | 2 | 15 / `15->14->25->36->37` / 37 | 0.046214 |
+| 2 | 120 | 1 | 1 | 15 / `15->14->13->2->1` / 1 **← ROUTE CHANGED** | 0.047600 |
+| 3 | 180 | 1 | 2 | 15 / `15->14->25->36` / 36 **← ROUTE CHANGED** | 0.037717 |
+| 4 | 240 | 1 | 1 | 15 / `15->14->25->36` / 36 | 0.040054 |
+| 5 | 300 | 2 | 1 | 15 / `15->14->25->36` / 36 | 0.042347 |
+| 6 | 360 | 1 | 1 | 44 / `44->45->46->35->36` / 36 **← ROUTE CHANGED** | 0.044439 |
+| 7 | 420 | 2 | 1 | 14 / `14->13->24->35->36` / 36 **← ROUTE CHANGED** | 0.040314 |
+| 8 | 480 | 2 | 1 | 14 / `14->13->24->35->36` / 36 | 0.042179 |
+| 9 | 540 | 2 | 2 | 44 / `44->45->56->1->0` / 0 **← ROUTE CHANGED** | 0.043645 |
+| 10 | 600 | 2 | 2 | 44 / `44->45->56->1->0` / 0 | 0.041591 |
+
+- 路由切換 5 次，與 mode=gw2gw（無流量）路由表完全一致，確認 `gw2gw_direct` 流量不影響 ISL routing 決策
+- 79 條 ISL 邊有 load cost 非零（load > 0），132 條中有 79 條實際承載流量
+- ISL drop rate 驗證：本次輸出為 ISL drop rate 功能加入前的記錄，無 `PrintIslDropStats` 輸出
+
+Wall time: 2803.01s
+
+---
+
 ## 版本對應
 
 | 版本 | 主要內容 |
@@ -474,5 +650,6 @@ Wall time: 2921.66s
 | v5 | 新增 `ft-filter.h/.cc`（FtVisibilityFilter），新增 Layer 2/3 accessor（`GetRouteCost` 等） |
 | v6 | 新增 `GwDef`、`GwToGwRoute`；實作 `AddGateway`、`AddGwPair`、`PrecomputeGwRoutes`、`PrintGwRouteReport`；GW 可見性以仰角 >5° 篩選；輸出格式 v6（entry / ISL_path / exit / isl_cost） |
 | v7 | 新增 `UtDef`、`GwToUtRoute`；實作 `AddUserTerminal`、`AddGwUtPair`、`PrecomputeGwUtRoutes`、`PrintGwUtRouteReport`；複用 GW 可見性；輸出格式 v7（增加 serving 欄，區分 GW entry 衛星與 UT serving 衛星） |
+| v7（test） | test-iridium.cc 新增：`gw2gw_direct` trafficProfile（端到端資料平面驗證）、`--rbdcVerbose` 靜音旗標、ISL drop rate 驗證（`ConnectIslDropTrace` / `PrintIslDropStats`，`PacketDropRateTrace` hook） |
 
 ---

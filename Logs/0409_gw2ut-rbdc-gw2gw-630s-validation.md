@@ -7,13 +7,13 @@
 
 ## 完成事項
 
-### 1. GW2GW 長時驗證（630s / 11 slots）
+### 1. GW2GW_direct 長時驗證（630s / 11 slots）
 
 **測試指令**：`--mode=gw2gw_direct --trafficProfile=gw2gw_direct --simTime=630 --gwSrc=0 --gwDst=2`
 
 **現象**：執行 TW→USA 端到端 CBR 資料平面驗證。確認動態路由在完整時間窗口內的切換行為與封包送達，資料平面在切換期間無中斷。
 
-**驗證**：
+**[驗證](https://github.com/bmw-ntust-internship/Lucy/blob/75541e425283619e3dfa78841d0db889fe89eac0/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Result/gw2gw_direct_tw2usa_630s.md)**：
 
 ISL 路由切換記錄（TW→USA，11 slots）：
 
@@ -45,7 +45,7 @@ GW0（TW-Taipei）→ UT1（US-SanFrancisco）
 
 **修正**：`test-iridium.cc` 目前對 RBDC trace 沒有頻率限制或 sample-only 過濾機制。需在 RBDC callback 中加入頻率限制，控制輸出量。
 
-**驗證**：
+**[驗證](https://github.com/bmw-ntust-internship/Lucy/blob/75541e425283619e3dfa78841d0db889fe89eac0/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Result/gw2ut_rbdc.md)**：
 - RBDC trace 路徑可正常掛接，callback 有被觸發（輸出非空）
 - ISL 路由路徑：
   - Slot 0～1（t=0～60s）：`15→14→25→36→37`（serving sat=37），isl_cost ≈ 0.044～0.046s
@@ -69,7 +69,7 @@ if (rbdcVerbose) {
 }
 ```
 
-**驗證**：以 `--mode=gw2ut --trafficProfile=gw2ut --simTime=630 --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco` 執行，輸出存於 `Topology & ISL Routing/Outputs/gw2ut_630sec.md`。
+**[驗證](https://github.com/bmw-ntust-internship/Lucy/blob/75541e425283619e3dfa78841d0db889fe89eac0/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Result/gw2ut_630sec.ms)**：以 `--mode=gw2ut --trafficProfile=gw2ut --simTime=630 --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco` 執行，輸出存於 `Topology & ISL Routing/Outputs/gw2ut_630sec.md`。
 
 路由路徑（11 slots，5 次路由切換）：
 
@@ -97,13 +97,13 @@ if (rbdcVerbose) {
 | 最高 ISL load | 0.4517ms (sat54→65) | 1.6273ms (sat30→41) |
 | Wall time | 560.9s | 3874.5s |
 
-路徑與 `gw2gw_direct_tw2usa_630s.md` 完全一致：兩者同為 TW-Taipei → SanFrancisco 方向，幾何相同，路由結果互相驗證通過。
+路徑與 `gw2gw_direct_tw2usa_630s` 一致：同為 TW-Taipei → SanFrancisco 方向，幾何相同，路由結果互相驗證通過。
 
 ---
 
-### 5. 更新 Layer 1 README（Layer1.md）
+### 5. 更新 [Layer 1 README](https://github.com/bmw-ntust-internship/Lucy/blob/75541e425283619e3dfa78841d0db889fe89eac0/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Readme.md)
 
-**修正**：對 `Topology & ISL Routing/Layer1.md` 進行以下更新：
+**修正**：更新：
 
 1. **架構流程圖**：在 `CreateSatScenario()` 後新增 `ConnectIslDropTrace()` 步驟；在 `RunSimulation()` 後新增 `PrintLoadStats()` 和 `PrintIslDropStats()` 步驟。
 2. **核心資料結構**：拆分為 `isl-graph.h 定義` 與 `test-iridium.cc 驗證輔助` 兩子區段；新增 `IslDropStats`、`g_nodeToSatId`、`g_islDropStats` 說明。
@@ -132,7 +132,7 @@ if (rbdcVerbose) {
 
 ## 新增 / 修改的程式碼
 
-### test-iridium_baseline.cc — ISL Drop Rate 驗證機制（全新新增）
+### [test-iridium_baseline.cc](https://github.com/bmw-ntust-internship/Lucy/blob/c6e42f2906fe3e41b83782823f008bf97dd30394/TriScale-LEO/Topology%20%26%20ISL%20Routing/Predict/Codes/test-iridium_baseline.cc) — ISL Drop Rate 驗證機制（全新新增）
 
 **新增位置**：anonymous namespace（`main()` 之前）
 
@@ -236,6 +236,4 @@ if (rbdcVerbose) {
 
 ## 明日計畫
 
-- 以修正後指令（`--gwDst=2`）重新執行模擬，確認 `PrintIslDropStats` 輸出格式與門檻過濾行為
-- 調查 gw2gw 630s Wall time 2803s 原因（P2：疑似 SNS3 DVB MAC beam scheduler 所致，待確認）
-- 評估是否可進入 Layer 2 Beam Hopping 設計階段（前提：Layer 1 驗證基準已穩定）
+- 補齊baseline verified
