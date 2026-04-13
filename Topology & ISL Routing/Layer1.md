@@ -445,6 +445,249 @@ TOTAL: N pkts, M dropped | drop_rate=X.XXX% | success_rate=Y.YYY%
 
 ---
 
+## IslRoutingManager 函式層級原生 / 自訂對照
+
+本節逐函式列出 `IslRoutingManager` 中哪些操作直接呼叫 SNS-3 原生 API、哪些是完全自行實作，並標注呼叫的原生型別與方法。
+
+### 圖例
+
+| 符號 | 意義 |
+|------|------|
+| **[原生]** | 直接呼叫 SNS-3 或 NS-3 core 原生 API，未修改其行為 |
+| **[Patch]** | 在原生 SNS-3 檔案中新增的方法（需修改 contrib/satellite） |
+| **[自訂]** | 完全自行實作，SNS-3 中無對應功能 |
+
+---
+
+### `GetTypeId()` — TypeId 註冊
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `TypeId(...).SetParent<Object>()` | **[原生]** NS-3 Object system | IslRoutingManager 繼承 `ns3::Object`，使用 NS-3 標準 TypeId 系統 |
+| `.AddConstructor<IslRoutingManager>()` | **[原生]** NS-3 Object system | 標準 factory 方法 |
+| `.AddAttribute("NumSatellites", ..., MakeUintegerAccessor(...), ...)` × 9 | **[原生]** NS-3 Attribute system | 所有 Attribute 宣告均使用原生 `UintegerValue` / `DoubleValue` / `StringValue` accessor |
+
+---
+
+### `Initialize()` — 初始化入口
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `LoadISLDefs(islsFilePath)` | **[自訂]** | 讀 isls.txt，建立 `m_islDefs` / `m_perSatISLOrder` / `m_edgeOfPair`；完全自行實作 |
+| `InitOrbiterDevices()` | 混合（見下節） | 使用原生 API 取得裝置，但快取邏輯為自訂 |
+| `m_loadCosts.assign(...)` / `m_islSources.assign(...)` | **[自訂]** | 動態負載追蹤陣列初始化，SNS-3 中無此機制 |
+
+---
+
+### `LoadISLDefs()` — 讀取 ISL 定義檔
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `std::ifstream file(islsFilePath)` | **[自訂]** 標準 C++ | 直接讀檔，不使用 NS-3 API |
+| `NS_ASSERT_MSG(file.is_open(), ...)` | **[原生]** NS-3 core macro | 防呆斷言 |
+| `NS_FATAL_ERROR(...)` | **[原生]** NS-3 core macro | 衛星 ID 超界時 fatal |
+| `m_perSatISLOrder[a][edgeIdx] = counter[a]++` | **[自訂]** | 建立 sat → ISL interface index 的對應表，SNS-3 原生無此結構 |
+| `m_edgeOfPair[{a,b}] = edgeIdx` | **[自訂]** | 建立 (satA, satB) → edgeIdx 的反查表 |
+
+> 整體：**完全自訂**。SNS-3 有 `SatConf::LoadIsls()` 但只回傳 pair list，不建立 ifIndex 對應，故不能替代。
+
+---
+
+### `InitOrbiterDevices()` — 快取衛星裝置
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `Singleton<SatTopology>::Get()->GetOrbiterNode(i)` | **[原生]** `satellite-topology.h` | 取得第 i 顆衛星的 `Ptr<Node>` |
+| `DynamicCast<SatOrbiterNetDevice>(sat->GetDevice(d))` | **[原生]** `satellite-orbiter-net-device.h` | 從 Node 上找出 SatOrbiterNetDevice |
+| `CreateObject<SatIslArbiterUnicast>(sat)` | **[原生]** `satellite-isl-arbiter-unicast.h` | 為每顆衛星建立一個空白 Arbiter 物件 |
+| `m_orbDevs[i]` / `m_orbNodes[i]` / `m_arbiters[i]` 快取 | **[自訂]** | 本專案自建的快取陣列，原生無此集中管理機制 |
+
+---
+
+### `GetPositionsAt(tau)` — 查詢任意時刻衛星位置
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `m_orbNodes[i]->GetObject<SatSGP4MobilityModel>()` | **[原生]** NS-3 Object aggregation | 取出掛在 Node 上的 SGP4 mobility 物件 |
+| `mob->GetGeoPositionAt(tau)` | **[Patch]** `satellite-sgp4-mobility-model.h/.cc` | **原生不存在**。原生只有 `GetPosition()` 綁定 `Simulator::Now()`；此方法為本專案新增，允許查詢任意 `Time t` 的 ECEF 座標 |
+| `.ToVector()` | **[原生]** NS-3 GeoCoordinate | 轉換為 `ns3::Vector`（ECEF 形式） |
+
+---
+
+### `BuildISLGraph(pos)` — 建立 ISL 鄰接表
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| 距離計算 `sqrt(dx²+dy²+dz²)` | **[自訂]** 標準 C++ `<cmath>` | 由 ECEF 座標算歐氏距離 |
+| `dist > m_islMaxDistanceKm * 1e3` 過濾 | **[自訂]** | ISL 距離門檻過濾，SNS-3 無此邏輯 |
+| `m_blockedEdges.count({a,b})` | **[自訂]** | 封鎖邊機制（供 avoidance test），SNS-3 無此 |
+| `propCost = dist / C` | **[自訂]** | 傳播延遲換算（dist/光速），SNS-3 不計算此值 |
+| `m_perSatISLOrder[a].at(edgeIdx)` | **[自訂]** | 查自建的 ifIndex 對應表 |
+| `graph[a].push_back({b, propCost, ifIdxOnA, ifIdxOnB})` | **[自訂]** | 建立有向帶權鄰接表 `ISLGraph`，SNS-3 無此結構 |
+
+> 整體：**完全自訂**。SNS-3 的 `InstallIsls()` 建立的是 p2p 網路裝置，不建立圖形化鄰接表。
+
+---
+
+### `BuildISLGraphWithLoad(pos)` — 含負載的 ISL 鄰接表
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| 同 `BuildISLGraph` 的所有操作 | **[自訂]** | 繼承同樣的自訂邏輯 |
+| `m_loadCosts[a*N+b]` | **[自訂]** | 讀取 EMA 負載成本，加入 `propagation_cost + load` | 
+| `graph[a].push_back({b, propCost + loadAb, ...})` | **[自訂]** | 建立 load-aware 邊權，SNS-3 完全無此 |
+
+---
+
+### `ComputeRoutesForSrc(src, graph)` — 單源 Dijkstra
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `std::priority_queue<P, ..., std::greater<P>>` | **[自訂]** 標準 C++ STL | Min-heap 優先佇列 |
+| `dist[src] = 0.0` / `dist[v] = INF` 初始化 | **[自訂]** | 標準 Dijkstra 初始化 |
+| `firstHopNode[e.nodeB]` / `firstHopIf[e.nodeB]` 追蹤 | **[自訂]** | 記錄「從 src 出發的第一跳節點與介面」，SNS-3 完全無此 |
+| `entries.push_back({dest, firstHopNode[dest], firstHopIf[dest], dist[dest]})` | **[自訂]** | 生成 `RouteEntry` 清單 |
+
+> 整體：**完全自訂**。SNS-3 原生使用 Floyd-Warshall 且無 metric，此 Dijkstra 實作為全新設計。
+
+---
+
+### `ComputeBaseRoutes(graph)` — 全星座路由表計算
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `for src in 0..N: ComputeRoutesForSrc(src, graph)` | **[自訂]** | 66 顆衛星各跑一次 Dijkstra，SNS-3 無此 batch 機制 |
+
+---
+
+### `ApplyRoutingTable(slotIndex)` — 寫入 Arbiter
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `UpdateLoadCosts()` | **[自訂]** | 呼叫自訂 EMA 更新函式 |
+| `HasSignificantChange()` | **[自訂]** | 呼叫自訂變化偵測函式 |
+| `RecomputeAffectedRoutes(slotIndex)` | **[自訂]** | 呼叫自訂局部重算函式 |
+| `m_arbiters[satId]->ClearNextHopEntries()` | **[Patch]** `satellite-isl-arbiter-unicast.h` | **原生不存在**。原生只能逐條新增，此方法為本專案新增以支援跨 slot 清空覆寫 |
+| `m_arbiters[satId]->AddNextHopEntry(entry.destSatId, entry.islIfIndexOnA)` | **[原生]** `satellite-isl-arbiter-unicast.h` | 原生 API，將 (destNodeId → ifIndex) 寫入 Arbiter lookup table |
+| `m_orbDevs[satId]->SetArbiter(m_arbiters[satId])` | **[原生]** `satellite-orbiter-net-device.h` | 將 Arbiter 綁定到 SatOrbiterNetDevice，使後續封包轉送生效 |
+| `RebuildIslSources(slotIndex)` | **[自訂]** | 重建 edge → source 反查表 |
+| `Simulator::Now()` | **[原生]** NS-3 core | 取得目前模擬時間 |
+
+---
+
+### `ScheduleRoutingUpdates()` — 排入 NS-3 事件
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `Simulator::Schedule(t, &IslRoutingManager::ApplyRoutingTable, this, k)` | **[原生]** NS-3 core Simulator | 使用原生事件排程器，觸發時機由 NS-3 決定 |
+| 整體 for-loop 邏輯（哪些時刻要觸發、觸發哪個函式） | **[自訂]** | 排程策略自行設計，SNS-3 原生無 slot-based routing update 機制 |
+
+---
+
+### `UpdateLoadCosts()` — EMA 負載更新
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `GetLinkQueueDelay(a, ifA)` → 內部呼叫↓ | **[自訂]** 呼叫點 | 呼叫自訂函式 |
+| `m_orbDevs[satId]->GetIslsNetDevices()` | **[原生]** `satellite-orbiter-net-device.h` | 取得該衛星所有 ISL 裝置清單 |
+| `islDevs[ifIdx]->GetQueue()` | **[原生]** `point-to-point-isl-net-device.h` | 取得 DropTailQueue 指標 |
+| `q->GetNBytes()` | **[原生]** NS-3 `DropTailQueue<Packet>` | 取得佇列目前持有的 byte 數 |
+| `bits / m_islLinkRateBps` 換算 queue delay | **[自訂]** | 將佇列 bytes 換算為延遲秒數，SNS-3 無此換算 |
+| `m_emaAlpha * sample + (1-alpha) * prev` EMA 平滑 | **[自訂]** | EMA 演算法，SNS-3 完全無此 |
+
+---
+
+### `HasSignificantChange()` — 負載變化偵測
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `Simulator::Now() - m_lastRecomputeTime` 冷卻判斷 | **[原生]** NS-3 Time 運算 | 使用 NS-3 Time 型別做差值 |
+| `abs(curr-prev)/max(prev,curr) > m_changeThreshold` | **[自訂]** | 相對變化量計算，SNS-3 完全無此邏輯 |
+
+> 整體：**完全自訂**。
+
+---
+
+### `RecomputeAffectedRoutes(slotIndex)` — 局部重算
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `GetPositionsAt(Simulator::Now())` | 混合（Patch + 原生） | 用 `Simulator::Now()` 查即時衛星位置 |
+| `BuildISLGraphWithLoad(pos)` | **[自訂]** | 建立 load-aware 圖 |
+| `m_islSources[edgeIdx]` 定位受影響 source | **[自訂]** | 使用自建反查表找受影響衛星 |
+| `ComputeRoutesForSrc(src, graph)` | **[自訂]** | 局部 Dijkstra |
+| `RefreshGwRoutesForSlot(slotIndex)` | **[自訂]** | 同步更新 GW/UT 路由報表 |
+| `m_lastRecomputeTime = now` | **[原生]** NS-3 Time | 記錄最後重算時刻 |
+
+> 整體：**完全自訂**。
+
+---
+
+### `PrecomputeGwRoutes()` / `PrecomputeGwUtRoutes()` — GW / UT 端到端路由
+
+| 操作 | 來源 | 說明 |
+|------|------|------|
+| `ComputeElevationDeg(obsLat, obsLon, satEcef)` | **[自訂]** | 計算觀測點對衛星的仰角（°），SNS-3 無此函式 |
+| 仰角門檻篩選（`> m_gwElevThreshDeg`） | **[自訂]** | GW/UT 可見衛星集合計算，SNS-3 無此 |
+| `GetRouteCost(entry, exit, slot)` | **[自訂]** | 查 `m_tables[slot]` 取路由 cost |
+| `TracePath(entry, exit, slot)` | **[自訂]** | 重建完整衛星跳序列 |
+| `m_gwRoutes[slot][{srcGw,dstGw}] = route` | **[自訂]** | 儲存 GwToGwRoute 結果，SNS-3 完全無 E2E 路由結構 |
+
+> 整體：**完全自訂**。SNS-3 無 GW/UT 可見性與 E2E 路由計算。
+
+---
+
+### 原生 API 使用彙總
+
+| SNS-3 / NS-3 原生型別 | 使用的方法 | 使用位置 | 狀態 |
+|---|---|---|---|
+| `SatTopology` | `GetOrbiterNode(i)` | `InitOrbiterDevices()` | **[原生]** |
+| `SatOrbiterNetDevice` | `GetDevice(d)` DynamicCast | `InitOrbiterDevices()` | **[原生]** |
+| `SatOrbiterNetDevice` | `GetIslsNetDevices()` | `GetLinkQueueDelay()` | **[原生]** |
+| `SatOrbiterNetDevice` | `SetArbiter(arbiter)` | `ApplyRoutingTable()` | **[原生]** |
+| `SatIslArbiterUnicast` | `CreateObject<>(sat)` 建立 | `InitOrbiterDevices()` | **[原生]** |
+| `SatIslArbiterUnicast` | `AddNextHopEntry(dst, ifIdx)` | `ApplyRoutingTable()` | **[原生]** |
+| `SatIslArbiterUnicast` | `ClearNextHopEntries()` | `ApplyRoutingTable()` | **[Patch]** 本專案新增 |
+| `SatSGP4MobilityModel` | `GetObject<>()` 取出 | `GetPositionsAt()` | **[原生]** |
+| `SatSGP4MobilityModel` | `GetGeoPositionAt(Time t)` | `GetPositionsAt()` | **[Patch]** 本專案新增 |
+| `PointToPointIslNetDevice` | `GetQueue()` | `GetLinkQueueDelay()` | **[原生]** |
+| `DropTailQueue<Packet>` | `GetNBytes()` | `GetLinkQueueDelay()` | **[原生]** |
+| `Simulator` | `Schedule(t, cb, ...)` | `ScheduleRoutingUpdates()` | **[原生]** |
+| `Simulator` | `Now()` | `ApplyRoutingTable()`, `HasSignificantChange()`, `RecomputeAffectedRoutes()` | **[原生]** |
+| NS-3 Object system | `Object`, `TypeId`, `GetTypeId()`, `AddAttribute()` | class 定義 | **[原生]** |
+| NS-3 core macro | `NS_ASSERT_MSG`, `NS_FATAL_ERROR` | 多處防呆 | **[原生]** |
+
+---
+
+### 完全自訂（SNS-3 無對應）清單
+
+| 功能 / 函式 | 說明 |
+|---|---|
+| `LoadISLDefs()` | 讀 isls.txt 並建立 `m_perSatISLOrder`、`m_edgeOfPair` 兩張反查表 |
+| `ISLGraph`、`ISLEdge`、`RouteEntry`、`RoutingTable` 資料結構 | 整套圖論資料結構，SNS-3 無 |
+| `GwDef`、`GwToGwRoute`、`UtDef`、`GwToUtRoute` 資料結構 | E2E 路由結果結構，SNS-3 無 |
+| `SlotStats` 資料結構 | 每槽執行統計，SNS-3 無 |
+| `BuildISLGraph()` | 帶 propagation_cost + 距離門檻過濾的鄰接表建構 |
+| `BuildISLGraphWithLoad()` | load-aware 鄰接表（加入 EMA load cost） |
+| `ComputeRoutesForSrc()` | 帶 first-hop 記錄的 Dijkstra |
+| `ComputeBaseRoutes()` | 66×Dijkstra 批次計算 |
+| `ApplyTiebreaker()` | 等成本路徑的跨時槽穩定性 tiebreaker（目前 dead code） |
+| `UpdateLoadCosts()` | 佇列 byte → delay 換算 + EMA 平滑 |
+| `HasSignificantChange()` | 相對變化量 + 冷卻期判斷 |
+| `RecomputeAffectedRoutes()` | 局部 Dijkstra，僅對受影響 source 重算 |
+| `RebuildIslSources()` | edge → source 反查表，支援局部重算定位 |
+| `GetLinkQueueDelay()` | 將 ISL 佇列 bytes 換算為 queue delay（秒） |
+| `PrecomputeGwRoutes()` | GW-to-GW E2E 路由，含可見性篩選與最低 cost 枚舉 |
+| `PrecomputeGwUtRoutes()` | GW-to-UT E2E 路由，含 UT 可見性篩選 |
+| `ComputeElevationDeg()` | 觀測點→衛星仰角計算（ECEF 轉換） |
+| `RefreshGwRoutesForSlot()` | 局部重算後同步 GW/UT 路由報表 |
+| `BlockISL()` / `UnblockISL()` | 封鎖邊機制（avoidance test） |
+| `RunAvoidanceTest()` | 驗證繞路行為的測試函式 |
+| `TracePath()` | 依 routing table 重建完整跳序列 |
+| `PrintStats()` / `PrintLoadStats()` / `PrintRouteReport()` / `PrintGwRouteReport()` / `PrintGwUtRouteReport()` | 所有輸出報表函式 |
+
+---
+
 ## CMakeLists.txt 修改
 
 **位置**：`contrib/satellite/CMakeLists.txt`

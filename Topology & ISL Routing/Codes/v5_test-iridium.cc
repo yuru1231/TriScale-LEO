@@ -1,5 +1,5 @@
 // v5_test-iridium.cc
-// Integrates Layer 1 (ISL routing + FT filter),
+// Integrates Layer 1 (ISL routing),
 //            Layer 2 (Beam Hopping, stub),
 //            Layer 3 (QoS, via SNS3 native config, pending attribute verification).
 //
@@ -7,7 +7,6 @@
 //   scenarioName  = "constellation-iridium-66-sats-fixed"
 //   ns3BasePath   = "/home/wenj/workspace/ns-3.43"
 //   numSats       = 66
-//   FT positions  = Taipei / Tokyo / SanFrancisco (contracted ground stations)
 //
 // All other tunable parameters are exposed via CommandLine.
 
@@ -18,7 +17,6 @@
 #include "ns3/satellite-module.h"
 #include "ns3/traffic-module.h"
 #include "ns3/isl-graph.h"
-#include "ns3/ft-filter.h"
 #include "ns3/beam-hopping-manager.h"
 
 #include <chrono>
@@ -89,7 +87,7 @@ main(int argc, char* argv[])
     double   emaAlpha        = 0.3;    // EMA weight for load-cost update
     double   changeThresh    = 0.1;    // load-cost change ratio to trigger recompute
     double   cooldownRatio   = 0.5;    // cooldownSeconds = slotInterval * cooldownRatio
-    double   elevMinDeg      = 5.0;    // minimum elevation angle for FT visibility (deg)
+    double   elevMinDeg      = 5.0;    // minimum elevation angle for beam/cell visibility (deg)
 
     // Layer 2 – Beam Hopping (stub)
     double   bhSuperframeSec = 0.25;   // BH superframe duration (s)
@@ -103,7 +101,7 @@ main(int argc, char* argv[])
     cmd.AddValue("emaAlpha",       "EMA weight for load-cost smoothing",       emaAlpha);
     cmd.AddValue("changeThresh",   "Load-cost change ratio for recompute",     changeThresh);
     cmd.AddValue("cooldownRatio",  "Cooldown = slotInterval * cooldownRatio",  cooldownRatio);
-    cmd.AddValue("elevMinDeg",     "Minimum FT elevation angle (deg)",         elevMinDeg);
+    cmd.AddValue("elevMinDeg",     "Minimum elevation angle (deg)",            elevMinDeg);
     cmd.AddValue("bhSuperframeSec","BH superframe duration (s)",               bhSuperframeSec);
     cmd.Parse(argc, argv);
 
@@ -181,23 +179,6 @@ main(int argc, char* argv[])
     routingMgr->RunAvoidanceTest(0u, 32u, 0u);
 
     routingMgr->ScheduleRoutingUpdates();
-
-    // ── Layer 1 extension: FT Visibility Filter ───────────────────────────
-    // Contracted FTs: positions are fixed (actual ground station coordinates).
-    Ptr<FtVisibilityFilter> ftFilter = CreateObject<FtVisibilityFilter>();
-    ftFilter->SetRoutingManager(routingMgr);
-    ftFilter->SetElevationThreshold(elevMinDeg);
-
-    ftFilter->AddFt(0, 25.0,  121.5, "TW-Taipei");       // Taiwan
-    ftFilter->AddFt(1, 35.7,  139.7, "JP-Tokyo");        // Japan
-    ftFilter->AddFt(2, 37.8, -122.4, "US-SanFrancisco"); // US West Coast
-
-    // Contracted pairs: only these FT-to-FT connections may route
-    ftFilter->AddContractedPair(0, 1); // Taiwan <-> Japan
-    ftFilter->AddContractedPair(0, 2); // Taiwan <-> US
-
-    ftFilter->PrecomputeVisibility();
-    ftFilter->PrintVisibilityReport();
 
     // ── Layer 2: Beam Hopping Manager (stub) ──────────────────────────────
     // BH logic is independent of ISL routing; running here as background stub
