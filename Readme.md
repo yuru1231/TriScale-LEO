@@ -466,11 +466,11 @@ struct SatBhTimePlan {
 |------|------|------|
 | `v5_test-iridium.cc` `ConfigureQoS()` | Class A (CRA)、Class B (RBDC)、Class C (VBDC) SNS3 attribute config | ✅ 架構完成，attribute 路徑待驗證 |
 
-### 整合測試
+### 整合測試 / Baseline 驗證
 
 | 檔案 | 內容 | 狀態 |
 |------|------|------|
-| `test-iridium.cc` | Layer 1 三模式（sat2sat / gw2gw / gw2ut）整合測試；GW preset：TW-Taipei(0)、JP-Tokyo(1)、US-SanFrancisco(2) | ✅ 完成（v7 已驗證） |
+| `test-iridium_baseline.cc` | Layer 1 三模式（sat2sat / gw2gw / gw2ut）整合測試；5 種 trafficProfile；RBDC trace；ISL drop rate 驗證；GW preset：TW-Taipei(0)、JP-Tokyo(1)、US-SanFrancisco(2) | ✅ 完成（v7 baseline 已驗證，2026-04-10） |
 
 ---
 
@@ -523,7 +523,9 @@ struct SatBhTimePlan {
 
 ## 14. 驗證基準
 
-### Layer 1 v7 Output（simTime=630s, slotInterval=60s, numSlots=11）
+### Layer 1 v7 Baseline Output（simTime=630s, slotInterval=60s, numSlots=11）
+
+> 使用 `scratch/test-iridium_baseline`；完整矩陣見 `Topology & ISL Routing/Outputs/Baseline/validation_baseline.md`
 
 配置：`[CFG] mode=<mode> simTime=630 slotInterval=60 numSlots=11 lastSlotTime=600`
 
@@ -539,7 +541,7 @@ struct SatBhTimePlan {
 #### mode=sat2sat（SAT0→SAT33）
 
 ```
-./ns3 run "scratch/test-iridium --mode=sat2sat --satSrc=0 --satDst=33"
+./ns3 run "scratch/test-iridium_baseline --mode=sat2sat --satSrc=0 --satDst=33"
 ```
 
 | slot 0–4 | `0->1->2->57->46->35->34->33`（7 hops）cost 0.078→0.069 |
@@ -550,7 +552,7 @@ Wall time: 2722.79s
 #### mode=gw2gw（TW-Taipei↔JP-Tokyo）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2gw --gwSrc=0 --gwDst=1"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2gw --gwSrc=0 --gwDst=1"
 ```
 
 | slot 0–4 | entry/exit=SAT15 |
@@ -562,7 +564,7 @@ Wall time: 2722.79s
 #### mode=gw2ut（TW-Taipei → UT-Taipei）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2ut --gwId=0 --utId=0 --utLatDeg=25.0330 --utLonDeg=121.5654 --utName=UT-Taipei"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2ut --gwId=0 --utId=0 --utLatDeg=25.0330 --utLonDeg=121.5654 --utName=UT-Taipei"
 ```
 
 | slot 0–5 | entry/serving=SAT15（UT slot=5 仍有 2 顆可見衛星） |
@@ -574,7 +576,7 @@ Wall time: 2765.45s
 #### mode=gw2gw（TW-Taipei↔US-SanFrancisco，長距離跨太平洋）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2gw --gwSrc=0 --gwDst=2"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2gw --gwSrc=0 --gwDst=2"
 ```
 
 | slot 0–1 | entry=SAT15 / exit=SAT37 / path=`15->14->25->36->37` / isl_cost≈0.044–0.046s |
@@ -589,7 +591,7 @@ Wall time: 2765.45s
 #### mode=gw2ut（TW-Taipei → UT-SanFrancisco，長距離跨太平洋）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2ut --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2ut --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco"
 ```
 
 | slot 0–1 | entry=SAT15 / serving=SAT37 / path=`15->14->25->36->37` / isl_cost≈0.044–0.046s |
@@ -600,6 +602,27 @@ Wall time: 2765.45s
 | slot 9–10 | entry=SAT44 / serving=SAT0 / path=`44->45->56->1->0` ← ROUTE CHANGED @ slot=9 |
 
 與 gw2gw TPE→SF 路徑和切換時機完全一致（UT@SF 座標 = GW2@SF 座標，serving = exit 全程）。Wall time: 2921.66s
+
+#### trafficProfile=gw2ut + RBDC Trace（TW→UT-SanFrancisco，120s）
+
+```
+./ns3 run "scratch/test-iridium_baseline --mode=gw2ut --trafficProfile=gw2ut --simTime=120 \
+  --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco --rbdcVerbose=true"
+```
+
+| 驗證項目 | 結果 |
+|---------|------|
+| RBDC trace 連接 | ✅ `/NodeList/*/DeviceList/*/SatLlc/SatRequestManager/RbdcTrace` 成功，callback 有觸發 |
+| ISL 路由 slot=2 | `15->14->13->2->1`（ROUTE CHANGED），isl_cost=0.047600s |
+| 活躍 ISL | 19 條，最高負載 sat54→65 = 0.4517ms |
+
+#### trafficProfile=gw2gw_direct + ISL Drop Rate（TW→US，630s）
+
+| 驗證項目 | 結果 |
+|---------|------|
+| 端到端接收 | `PacketSink::GetTotalRx() = 3,214,848 bytes`（~6279 pkts）**[PASS]** |
+| ISL 活躍條數 | 79 條有 load（132 條中） |
+| ISL drop rate | 0.000%（未達 1.0% 門檻）**[PASS]** |
 
 ### Layer 2 BH KPI 目標
 
@@ -638,6 +661,7 @@ Wall time: 2765.45s
 | v5 | 新增 `ft-filter.h/.cc`（FtVisibilityFilter），新增 Layer 2/3 accessor（`GetRouteCost` 等），整合三層測試 |
 | v6 | 新增 GW-to-GW 路由（`GwDef`、`GwToGwRoute`、`PrecomputeGwRoutes`、`PrintGwRouteReport`）；GW 可見性以仰角 >5° 篩選；Report v6 格式（entry / ISL_path / exit / isl_cost） |
 | v7 | 新增 GW-to-UT 路由（`UtDef`、`GwToUtRoute`、`PrecomputeGwUtRoutes`、`PrintGwUtRouteReport`）；複用 GW 可見性；Report v7 格式（增加 serving 欄）；test-iridium.cc 支援三模式 CLI 切換 |
+| v7（baseline） | 測試腳本重構為 `test-iridium_baseline.cc`；新增 5 種 `TrafficProfile`、`TrafficConfig` struct、RBDC trace 觀察；新增 `HolDelayObserver`（Stub）、`RefreshGwRoutesForSlot()`、`PrintLoadStats()`；建立 `Outputs/Baseline/` 驗證矩陣（2026-04-10） |
 
 ### Layer 2
 

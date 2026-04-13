@@ -27,7 +27,7 @@ InitOrbiterDevices()   ← 快取 66 顆衛星的 Node / SatOrbiterNetDevice / A
 PrecomputeAllTables()  ← 離線計算所有時槽的路由表（11 slots，0–600s）
    │  ├─ GetPositionsAt(τ_k)      → SGP4 查詢 66 顆衛星位置
    │  ├─ BuildISLGraph(pos)       → 過濾距離 > 5000km，建立帶 propagation_cost 的鄰接表
-   │  ├─ ComputeBaseRoutes(graph) → 66× Dijkstra，每顆衛星計算 65 條路由
+   │  ├─ ComputeBaseRoutes(graph) → 66sat × Dijkstra，每顆衛星計算 65 條路由
    │  └─ ApplyTiebreaker(routes, graphNext) → 有相同 cost 時，系統優先選擇在下一個時槽仍符合連線條件的 ISL，以降低跨時槽切換頻率並提升路由穩定性
    │
    ├─── [mode=sat2sat] ─────────→ PrintRouteReport()
@@ -44,7 +44,7 @@ PrecomputeAllTables()  ← 離線計算所有時槽的路由表（11 slots，0�
                                      ├─ 枚舉 entry × serving 組合，呼叫 GetRouteCost(entry,serving,slot)
                                      └─ PrintGwUtRouteReport() → 輸出 entry / ISL_path / serving / isl_cost
 
-[test-iridium.cc 初始化段]
+[test-iridium_baseline.cc 初始化段]
 CreateSatScenario()
    │
    ▼
@@ -73,7 +73,67 @@ PrintIslDropStats(threshPct, connectedInterfaces)
    ├─ overall drop_rate < threshPct → [PASS]
    └─ overall drop_rate >= threshPct → [FAIL]
 ```
+```mermaid
+flowchart TD
+    A["Start: test-iridium_baseline"] --> B["Parse CLI args<br/>mode / trafficProfile / simTime / slotInterval / endpoints"]
+    B --> C["LoadScenario"]
+    C --> D["CreateSatScenario"]
+    D --> E["Create IslRoutingManager"]
+    E --> F["Initialize(islsFilePath)<br/>Load ISL defs / init devices / init load-cost state"]
+    F --> G["PrecomputeAllTables()<br/>for each slot:<br/>GetPositionsAt -> BuildISLGraph -> ComputeBaseRoutes -> store in m_tables"]
+    G --> H{"mode"}
 
+    H --> M1["sat2sat"]
+    H --> M2["gw2gw"]
+    H --> M3["gw2ut"]
+
+    M1 --> M1A["Use satSrc / satDst"]
+    M1A --> M1B["No GW / UT registration"]
+    M1B --> M1C["Route report source:<br/>directly read m_tables[slot]"]
+
+    M2 --> M2A["AddGateway(gwSrc)<br/>AddGateway(gwDst)"]
+    M2A --> M2B["AddGwPair(gwSrc, gwDst)"]
+    M2B --> M2C["PrecomputeGwRoutes()<br/>pick entry sat + exit sat<br/>compose GW->GW route from m_tables"]
+
+    M3 --> M3A["AddGateway(gwId)"]
+    M3A --> M3B["AddUserTerminal(utId, lat, lon, name)"]
+    M3B --> M3C["AddGwUtPair(gwId, utId)"]
+    M3C --> M3D["PrecomputeGwUtRoutes()<br/>pick GW entry sat + UT serving sat<br/>compose GW->UT route from m_tables"]
+
+    M1C --> P{"trafficProfile"}
+    M2C --> P
+    M3D --> P
+
+    P --> P0["none<br/>No app traffic"]
+    P --> P1["gw2ut<br/>Normal GW<->UT service traffic"]
+    P --> P2["sat2sat<br/>Aggressive background load<br/>to stress ISL queues"]
+    P --> P3["gw2gw<br/>GW-side background load<br/>to drive queue/request behavior"]
+    P --> P4["gw2gw_direct<br/>Direct GW_user -> GW_user UDP delivery"]
+
+    P0 --> S["ScheduleRoutingUpdates()<br/>schedule ApplyRoutingTable(slot)"]
+    P1 --> S
+    P2 --> S
+    P3 --> S
+    P4 --> S
+
+    S --> R["Simulator::Run()"]
+    R --> T["At each slot:<br/>ApplyRoutingTable(slotIndex)"]
+    T --> U{"Load change significant?"}
+    U -->|No| V["Apply precomputed routing table"]
+    U -->|Yes| W["UpdateLoadCosts + RecomputeAffectedRoutes<br/>partial reroute for affected sources"]
+    V --> X["Continue simulation"]
+    W --> X
+
+    X --> Y{"mode"}
+    Y --> Z1["PrintRouteReport<br/>sat2sat: src sat -> dst sat"]
+    Y --> Z2["PrintGwRouteReport<br/>gw2gw: entry / exit / satPath"]
+    Y --> Z3["PrintGwUtRouteReport<br/>gw2ut: entry / serving / satPath"]
+
+    Z1 --> END["End"]
+    Z2 --> END
+    Z3 --> END
+
+```
 ---
 
 ## 核心資料結構
@@ -93,7 +153,7 @@ PrintIslDropStats(threshPct, connectedInterfaces)
 | `UtDef` | `{utId, latDeg, lonDeg, name}`  使用者終端定義 |
 | `GwToUtRoute` | `{gwId, utId, entrySatId, servingSatId, satPath, islCost, valid}`  一條 GW→UT 路由結果 |
 
-### test-iridium.cc 驗證輔助（anonymous namespace）
+### test-iridium_baseline.cc 驗證輔助（anonymous namespace）
 
 | 結構 / 全域變數 | 說明 |
 |---|---|
@@ -121,21 +181,53 @@ PrintIslDropStats(threshPct, connectedInterfaces)
 | `CooldownSeconds` | double | 30.0 | 兩次重算的最短間隔（秒） |
 | `IslLinkRateBps` | double | 10e6 | ISL 鏈路速率（用於計算 queue delay） |
 
-### test-iridium.cc 命令列參數（cmd.AddValue）
+### test-iridium_baseline.cc 命令列參數（cmd.AddValue）
+
+> 檔案：`scratch/test-iridium_baseline.cc`
+
+#### 核心路由 / 模擬參數
 
 | 參數 | 型別 | 預設值 | 說明 |
 |------|------|--------|------|
 | `--mode` | string | `gw2gw` | 路由場景：`sat2sat` / `gw2gw` / `gw2ut` |
 | `--trafficProfile` | string | `none` | 流量配置：`none` / `gw2ut` / `sat2sat` / `gw2gw` / `gw2gw_direct` |
+| `--rbdcVerbose` | bool | false | 是否輸出每筆 RBDC request（91 UT × ~26ms 週期，大量 log） |
+| `--islDropThreshPct` | double | 1.0 | ISL 整體丟棄率 PASS 門檻（%） |
 | `--simTime` | double | 630.0 | 模擬時長（秒） |
 | `--slotInterval` | double | 60.0 | 路由更新間隔（秒） |
+| `--beamId` | uint32 | 1 | SNS3 啟用的 beam ID |
+| `--islMaxDistKm` | double | 5000.0 | ISL 啟用距離門檻（km） |
+| `--islRateMbps` | double | 10.0 | ISL 鏈路速率（Mbps） |
+| `--emaAlpha` | double | 0.3 | EMA 新樣本權重 |
+| `--changeThresh` | double | 0.1 | 觸發重算的 load cost 相對變化門檻 |
+| `--cooldownRatio` | double | 0.5 | `CooldownSeconds = slotInterval × cooldownRatio` |
+| `--elevMinDeg` | double | 5.0 | GW/UT 最低仰角門檻（度） |
+
+#### 路由場景參數
+
+| 參數 | 型別 | 預設值 | 說明 |
+|------|------|--------|------|
+| `--satSrc` | uint32 | 0 | sat2sat 模式：來源衛星 ID |
+| `--satDst` | uint32 | 10 | sat2sat 模式：目標衛星 ID |
 | `--gwSrc` | uint32 | 0 | gw2gw 模式：來源 GW preset ID（0=TW / 1=JP / 2=US） |
-| `--gwDst` | uint32 | 1 | gw2gw 模式：目標 GW preset ID（0=TW / 1=JP / 2=US） |
+| `--gwDst` | uint32 | 1 | gw2gw 模式：目標 GW preset ID |
 | `--gwId` | uint32 | 0 | gw2ut 模式：GW preset ID |
 | `--utId` | uint32 | 0 | gw2ut 模式：UT ID |
 | `--utLatDeg` / `--utLonDeg` | double | — | gw2ut 模式：UT 座標 |
-| `--rbdcVerbose` | bool | false | 是否輸出每筆 RBDC request（91 UT × ~26ms 週期，大量 log） |
-| `--islDropThreshPct` | double | 1.0 | ISL 整體丟棄率 PASS 門檻（%） |
+| `--utName` | string | `UT-Taipei` | gw2ut 模式：UT 名稱 |
+
+#### 流量配置微調參數（TrafficConfig）
+
+| 參數 | 型別 | 預設值 | 說明 |
+|------|------|--------|------|
+| `--fwd` | bool | true | 是否安裝 FWD link（GW→UT）CBR 流量 |
+| `--rtn` | bool | true | 是否安裝 RTN link（UT→GW）CBR 流量 |
+| `--fwdIntervalMs` | uint32 | 100 | FWD CBR 封包間隔（ms） |
+| `--rtnIntervalMs` | uint32 | 500 | RTN CBR 封包間隔（ms） |
+| `--fwdPktBytes` | uint32 | 1500 | FWD 封包大小（bytes） |
+| `--rtnPktBytes` | uint32 | 512 | RTN 封包大小（bytes） |
+| `--trafficStart` | double | 1.0 | 流量開始時間（s） |
+| `--trafficStop` | double | 0.0 | 流量結束時間（s），0 = simTime - 1 |
 
 **GW Preset 對照（gwSrc / gwDst / gwId）：**
 
@@ -194,28 +286,10 @@ mgr->ScheduleRoutingUpdates();
 | `BlockISL(a, b)` / `UnblockISL(a, b)` | 暫時標記 ISL 為不可用（供 `RunAvoidanceTest` 使用） |
 | `RunAvoidanceTest(src, dst, slot)` | 封鎖路徑第一條 ISL，離線重算，驗證 (a) 封鎖 ISL 不出現於新路徑，(b) 無殘留舊 next-hop |
 
-#### v6 GW-to-GW 路由 API
 
-| 方法 |  說明 |
-|------|------|
-| `AddGateway(id, lat, lon, name)` |  登記一個 GW |
-| `AddGwPair(srcGwId, dstGwId)` |  登記一對要計算的 GW pair |
-| `SetGwElevationThreshold(deg)` | 設定仰角門檻（預設 5°） |
-| `PrecomputeGwRoutes()` |  對所有已登記 GW pair 離線計算各時槽最佳路由 |
-| `GetGwRoute(srcGwId, dstGwId, slot)` | 取得指定 GW pair 在指定時槽的路由結果 |
-| `PrintGwRouteReport()` |  輸出 GW-to-GW Route Report（entry / ISL_path / exit / isl_cost）|
-
-#### v7 GW-to-UT 路由 API
-
-| 方法 |  說明 |
-|------|------|
-| `AddUserTerminal(id, lat, lon, name)` |  登記一個 UT |
-| `AddGwUtPair(gwId, utId)` | 登記一對要計算的 GW–UT pair |
-| `PrecomputeGwUtRoutes()` |  對所有已登記 GW–UT pair 離線計算各時槽最佳路由 |
-| `GetGwUtRoute(gwId, utId, slot)` | 取得指定 GW-UT pair 在指定時槽的路由結果 |
-| `PrintGwUtRouteReport()` | 輸出 GW-to-UT Route Report（entry / ISL_path / serving / isl_cost）|
 
 ---
+
 
 ## 動態路由（負載感知）
 
@@ -235,9 +309,50 @@ mgr->ScheduleRoutingUpdates();
 
 ---
 
-## ISL 驗證機制（test-iridium.cc）
+## 流量配置（test-iridium_baseline.cc）
 
-以下驗證邏輯定義於 test-iridium.cc 的 anonymous namespace，**不屬於 IslRoutingManager**，而是測試腳本層的驗證機制。
+### TrafficProfile 枚舉
+
+| 值 | 說明 | 流量裝法 |
+|----|------|---------|
+| `none` | 不裝流量，只觀察路由 | 無 |
+| `gw2ut` | 正常 GW↔UT 業務流（service path 驗證） | `SatTrafficHelper` CBR GW↔UT |
+| `sat2sat` | 強背景流量製造 ISL queue 壓力 | `SatTrafficHelper` CBR GW→all UT |
+| `gw2gw` | GW 端背景流量驅動 queue/capacity-request 行為 | `SatTrafficHelper` CBR 兩端 GW↔UT |
+| `gw2gw_direct` | 真實 GW_user→GW_user 端到端資料平面驗證 | `OnOffHelper`+`PacketSinkHelper` UDP GW→GW |
+
+> 注意：`sat2sat`/`gw2gw` 使用 `SatTrafficHelper`（衛星專用，不能直接做 GW↔GW），流量的目的是製造 ISL queue load 或 capacity request，不是真正的 sat2sat / gw2gw 端到端傳輸。
+
+### TrafficConfig 結構
+
+```cpp
+struct TrafficConfig {
+    bool     enableFwd{true};      // 是否安裝 FWD link (GW→UT) 流量
+    bool     enableRtn{true};      // 是否安裝 RTN link (UT→GW) 流量
+    uint32_t fwdIntervalMs{100};   // FWD CBR 封包間隔（毫秒）
+    uint32_t rtnIntervalMs{500};   // RTN CBR 封包間隔（毫秒）
+    uint32_t fwdPktBytes{1500};    // FWD 封包大小（bytes）
+    uint32_t rtnPktBytes{512};     // RTN 封包大小（bytes）
+    double   startSec{1.0};        // 流量開始時間（s）
+    double   stopSec{0.0};         // 流量結束時間（0 = simTime - 1）
+};
+```
+
+### Rate Based Dynamic Capacity(RBDC) Trace 觀察
+
+**觀察點**：`/NodeList/*/DeviceList/*/SatLlc/SatRequestManager/RbdcTrace`
+
+**callback 簽名**：`void(uint32_t requestKbps)`（`ConnectWithoutContext`）
+
+**行為**：`requestKbps > 0` 時輸出 `[RBDC] t=<sec>s request=<kbps> kbps`；`requestKbps == 0`（佇列空）過濾不輸出。
+
+**觸發機制**：`SatRequestManager::DoRbdcLegacy()` 在每個超幀週期（~26ms）依 `SatQueue::QueueStats_t` 計算需求速率後觸發。
+
+---
+
+## ISL 驗證機制（test-iridium_baseline.cc）
+
+以下驗證邏輯定義於 test-iridium_baseline.cc 的 anonymous namespace，**不屬於 IslRoutingManager**，而是測試腳本層的驗證機制。
 
 ### ConnectIslDropTrace()
 
@@ -348,34 +463,6 @@ helper/ft-filter.h
 
 ---
 
-## Layer 1 Extension：FtVisibilityFilter
-
-**位置**：`contrib/satellite/helper/ft-filter.h/.cc`
-
-> **目前狀態**：`ft-filter.h/.cc` 已實作，但 **test-iridium.cc 尚未整合使用**。以下為類別設計文件，供後續整合參考。
-
-**功能**：基於 FT（Feeder Terminal）合約關係過濾可用路由，只允許有合約的 FT pair 之間建立路徑，兩地面站在某時槽下皆具衛星可見性，若未建立合約 pair，系統仍不產生對應 transit route。
-
-### 核心資料結構
-
-| 結構 | 說明 |
-|------|------|
-| `FtDef` | `{ftId, latDeg, lonDeg, name}`  一個地面站 |
-| `FtTransitRoute` | `{srcFtId, dstFtId, slotIndex, srcSatId, dstSatId, transitCost}`  一條可用的 FT 間路徑 |
-
-### 公開方法
-
-| 方法 | 說明 |
-|------|------|
-| `AddFt(id, lat, lon, name)` | 登記一個地面站 |
-| `AddContractedPair(ftA, ftB)` | 登記合約 FT pair（雙向） |
-| `SetRoutingManager(mgr)` | 綁定 IslRoutingManager |
-| `SetElevationThreshold(deg)` | 設定最低仰角門檻（預設 5°） |
-| `PrecomputeVisibility()` | 離線計算所有時槽下各 FT 可見哪些衛星，再結合已登記之 contracted pair 篩選可用的 FT-to-FT transit route |
-| `PrintVisibilityReport()` | 輸出可見性報告 |
-| `static ComputeElevationDeg(lat, lon, satPos)` | 靜態工具：計算 FT 對衛星的仰角（Layer 2 也會用到） |
-
----
 
 ## 已知問題
 
@@ -410,7 +497,7 @@ helper/ft-filter.h
 ### mode=sat2sat（SAT0→SAT33）
 
 ```
-./ns3 run "scratch/test-iridium --mode=sat2sat --satSrc=0 --satDst=33"
+./ns3 run "scratch/test-iridium_baseline --mode=sat2sat --satSrc=0 --satDst=33"
 ```
 
 | slot | time(s) | full_path | route_cost |
@@ -429,20 +516,12 @@ helper/ft-filter.h
 
 Wall time: 2722.79s
 
-**說明：**
-
-- **route_cost 單調遞減**：cost = 傳播延遲（distance / c）。Iridium 66 軌道傾角 86.4°，衛星持續向北飛行，SAT0→SAT33 這條路徑上各衛星間距在本模擬 600s 內整體縮短（星座進入更緊密的幾何配置），因此每槽 cost 都略低於前一槽。無負載流量，load cost = 0，cost 完全等於傳播延遲。
-
-- **slot=5 路徑縮短 2 跳**：slot=4→5 時，SAT57、SAT46 之間的 ISL 距離超過 5000km 門檻，導致 `BuildISLGraph` 過濾掉這條邊，原路徑 `2->57->46->35` 中的 57→46 跨軌道面連結斷開。Dijkstra 重算後找到替代路徑 `1->56->45->34`，跳數從 7 減為 5，且新路徑傳播距離更短（0.0655 < 0.0686），符合預期。
-
-- **recompSrc 趨勢（0→3→13→20→25→26→36→41→44→46→50）**：`RecomputeAffectedRoutes` 的驅動來源是 **load cost 變化**，不是 ISL 距離變化（距離變化已在 `PrecomputeAllTables` 離線處理完畢）。SNS3 DVB-S2 MAC scheduler 即使沒有用戶 UDP 流量，仍持續透過 ISL 傳送少量控制封包（訊號、pilot、MAC frame），使 `GetNPackets()` 回傳非零值，load cost 出現微小波動，`HasSignificantChange` 合法回傳 true（`Event count: 0` 只是 FlowMonitor 資料流統計，不代表 ISL queue 完全空）。recompSrc 遞增的機制：`RecomputeAffectedRoutes` 結束時呼叫 `RebuildIslSources(slotIndex)`，根據當前槽的路由表重建 `m_islSources`（記錄每條 ISL 邊是哪些 source 衛星的直接第一跳）。Iridium 星座持續移動，不同槽下不同 ISL 邊成為不同 source 的第一跳，隨著時間 MAC 控制流量觸發的受影響邊集合逐漸擴大，受影響 source 集合因此每槽成長。
-
 ---
 
 ### mode=gw2gw（TW-Taipei↔JP-Tokyo）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2gw --gwSrc=0 --gwDst=1"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2gw --gwSrc=0 --gwDst=1"
 ```
 
 #### 路由切換表（雙向對稱）
@@ -465,7 +544,7 @@ Wall time: 2403.38s
 
 **說明：**
 
-- **ISL_path 只顯示單顆衛星**：TW-Taipei（25°N 121.5°E）與 JP-Tokyo（35.7°N 139.7°E）直線距離約 2100km。在這段距離內，同一顆衛星同時對兩端都達到 >5° 仰角門檻，因此 GW0 的 entry 衛星與 GW1 的 exit 衛星是同一顆，ISL 星間跳數為 0，路徑退化為單節點。`GetRouteCost(entry=15, exit=15, slot)` 回傳 0.0，符合預期。
+- **ISL_path 只顯示單顆衛星**：TW-Taipei與 JP-Tokyo距離約 2100km。在這段距離內，同一顆衛星同時對兩端都達到 >5° 仰角門檻，因此 GW0 的 entry 衛星與 GW1 的 exit 衛星是同一顆，ISL 星間跳數為 0，路徑退化為單節點。`GetRouteCost(entry=15, exit=15, slot)` 回傳 0.0，符合預期。
 
 - **isl_cost 全程 = 0.0**：因 entry = exit，不需要任何 ISL 跳躍，傳播 cost 為 0。本驗證測試不注入 UDP 流量，load cost 亦為 0。
 
@@ -480,7 +559,7 @@ Wall time: 2403.38s
 ### mode=gw2ut（TW-Taipei → UT-Taipei）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2ut --gwId=0 --utId=0 --utLatDeg=25.0330 --utLonDeg=121.5654 --utName=UT-Taipei"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2ut --gwId=0 --utId=0 --utLatDeg=25.0330 --utLonDeg=121.5654 --utName=UT-Taipei"
 ```
 
 UT-Taipei 座標：lat=25.0330°N, lon=121.5654°E（與 GW0 TW-Taipei lat=25.0°N, lon=121.5°E 幾乎重疊，距離 < 10km）
@@ -518,7 +597,7 @@ Wall time: 2765.45s
 ### mode=gw2gw（TW-Taipei↔US-SanFrancisco，長距離跨太平洋）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2gw --gwSrc=0 --gwDst=2"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2gw --gwSrc=0 --gwDst=2"
 ```
 
 US-SanFrancisco：lat=37.8°N, lon=122.4°W；直線距離 TW-Taipei↔SF 約 9000km。
@@ -539,9 +618,7 @@ US-SanFrancisco：lat=37.8°N, lon=122.4°W；直線距離 TW-Taipei↔SF 約 90
 | 9 | 540 | 2 | 2 | SAT44 / `44->45->56->1->0` / SAT0 **← ROUTE CHANGED** | 0.043645 |
 | 10 | 600 | 2 | 2 | SAT44 / `44->45->56->1->0` / SAT0 | 0.041591 |
 
-（US-SanFrancisco → TW-Taipei 方向路徑為以上逆序，isl_cost 完全一致。）
-
-Wall time: 依實測填入
+Wall time: 
 
 **說明：**
 
@@ -560,7 +637,7 @@ Wall time: 依實測填入
 ### mode=gw2ut（TW-Taipei → UT-SanFrancisco，長距離跨太平洋）
 
 ```
-./ns3 run "scratch/test-iridium --mode=gw2ut --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco"
+./ns3 run "scratch/test-iridium_baseline --mode=gw2ut --gwId=0 --utId=1 --utLatDeg=37.8 --utLonDeg=-122.4 --utName=UT-SanFrancisco"
 ```
 
 UT-SanFrancisco：lat=37.8°N, lon=122.4°W（與 GW2@SF 座標完全相同）
@@ -605,7 +682,6 @@ Wall time: 2921.66s
   --islDropThreshPct=1.0"
 ```
 
-> 注意：此場景必須用 `--gwDst=2`（US-SanFrancisco）。GW preset ID 只有 0/1/2，不存在 ID=3。
 
 **端到端結果：**
 
@@ -639,17 +715,49 @@ Wall time: 2803.01s
 
 ---
 
-## 版本對應
+### trafficProfile=gw2ut + RBDC Trace（TW-Taipei → UT-SanFrancisco，120s）
 
-| 版本 | 主要內容 |
-|------|----------|
-| v1 | non-OOP 原型，全域函式，驗證基本路由流程 |
-| v2 | OOP 重構為 `IslRoutingManager`，NS3 Attribute 機制 |
-| v3 | 效能優化 Fix 1–4，`UpdateLoadCosts` / `HasSignificantChange` / `RecomputeAffectedRoutes` 實作 |
-| v4 | 測試腳本加入計時拆解，確認效能瓶頸在 `Simulator::Run`，`BuildISLGraphWithLoad` 加入 |
-| v5 | 新增 `ft-filter.h/.cc`（FtVisibilityFilter），新增 Layer 2/3 accessor（`GetRouteCost` 等） |
-| v6 | 新增 `GwDef`、`GwToGwRoute`；實作 `AddGateway`、`AddGwPair`、`PrecomputeGwRoutes`、`PrintGwRouteReport`；GW 可見性以仰角 >5° 篩選；輸出格式 v6（entry / ISL_path / exit / isl_cost） |
-| v7 | 新增 `UtDef`、`GwToUtRoute`；實作 `AddUserTerminal`、`AddGwUtPair`、`PrecomputeGwUtRoutes`、`PrintGwUtRouteReport`；複用 GW 可見性；輸出格式 v7（增加 serving 欄，區分 GW entry 衛星與 UT serving 衛星） |
-| v7（test） | test-iridium.cc 新增：`gw2gw_direct` trafficProfile（端到端資料平面驗證）、`--rbdcVerbose` 靜音旗標、ISL drop rate 驗證（`ConnectIslDropTrace` / `PrintIslDropStats`，`PacketDropRateTrace` hook） |
+```bash
+./ns3 run "scratch/test-iridium_baseline \
+  --mode=gw2ut \
+  --trafficProfile=gw2ut \
+  --simTime=120 \
+  --gwId=0 \
+  --utId=1 \
+  --utLatDeg=37.8 \
+  --utLonDeg=-122.4 \
+  --utName=UT-SanFrancisco \
+  --rbdcVerbose=true"
+```
+
+**驗證結果（2026-04-09）：**
+
+- RBDC trace 路徑 `/NodeList/*/DeviceList/*/SatLlc/SatRequestManager/RbdcTrace` 成功連接，callback 有觸發（輸出非空）
+- ISL 路由路徑（120s / 3 slots）：
+
+| slot | ISL_path | serving sat | isl_cost |
+|------|----------|-------------|---------|
+| 0 | `15->14->25->36->37` | SAT37 | 0.043969s |
+| 1 | `15->14->25->36->37` | SAT37 | 0.046214s |
+| 2 | `15->14->13->2->1` **← ROUTE CHANGED** | SAT1 | 0.047600s |
+
+- 活躍 ISL：19 條，最高負載 sat54→65 = 0.4517ms
+- Wall time: 560.9s
 
 ---
+
+### trafficProfile=gw2gw + ISL Drop Rate（TW-Taipei↔US-SanFrancisco，背景流量，630s）
+
+**測試目的**：驗證 `ConnectIslDropTrace` / `PrintIslDropStats` 機制，確認有流量時 ISL drop trace 正常觸發。
+
+**ISL Drop Stats 格式**（`gw2gw_bgload_630s`）：
+```
+=== ISL Packet Drop Rate Summary ===
+  (all ISLs: 0 drops)
+TOTAL: N pkts, 0 dropped | drop_rate=0.000% | success_rate=100.000%
+[PASS] overall ISL drop rate < 1.0%
+=====================================
+```
+
+---
+
