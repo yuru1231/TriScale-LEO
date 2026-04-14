@@ -628,7 +628,7 @@ struct E2ESegmentConfig
 
 struct E2EConfig
 {
-    std::string    mode{"gw2gw"};
+    std::string    pathType{"gw2gw_e2e"};
     TrafficProfile legacyProfile{TrafficProfile::NONE};
     bool           explicitSegments{false};
     double         simTimeSec{0.0};
@@ -655,6 +655,7 @@ struct E2EExecutionPlan
     bool     installGw2GwBackgroundTraffic{false};
     bool     installGw2GwDirectTraffic{false};
     uint32_t edgeGatewayId{0};
+    bool     includesIsl{false};
 };
 
 // === Scenario / Endpoint Discovery ==========================================
@@ -723,6 +724,40 @@ HasEdgeSegmentEnabled(const E2EConfig& cfg)
     return cfg.feederlink.enabled || cfg.servicelink.enabled;
 }
 
+static std::string
+NormalizePathType(std::string pathType)
+{
+    if (pathType == "gw2ut") return "gw2ut_e2e";
+    if (pathType == "gw2gw") return "gw2gw_e2e";
+    return pathType;
+}
+
+static bool
+PathTypeIncludesIsl(const std::string& pathType)
+{
+    return pathType == "sat2sat" ||
+           pathType == "gw2ut_e2e" ||
+           pathType == "gw2gw_e2e";
+}
+
+static bool
+PathTypeUsesGwPair(const std::string& pathType)
+{
+    return pathType == "gw2gw_e2e";
+}
+
+static bool
+PathTypeUsesGwUtPair(const std::string& pathType)
+{
+    return pathType == "gw2ut_e2e";
+}
+
+static bool
+PathTypeNeedsGatewayAnchor(const std::string& pathType)
+{
+    return pathType != "sat2sat";
+}
+
 static double
 ResolveTrafficStopSec(const TrafficConfig& cfg, double simTimeSec)
 {
@@ -759,9 +794,17 @@ ApplyLegacySegmentDefaults(E2EConfig& cfg)
         break;
 
     case TrafficProfile::NONE:
-        if (cfg.mode == "sat2sat")
+        if (cfg.pathType == "sat2sat")
         {
             cfg.isl.enabled = true;
+        }
+        else if (cfg.pathType == "gw2sat" || cfg.pathType == "sat2gw")
+        {
+            cfg.feederlink.enabled = true;
+        }
+        else if (cfg.pathType == "sat2ut")
+        {
+            cfg.servicelink.enabled = true;
         }
         else
         {
@@ -779,29 +822,43 @@ ValidateE2EConfig(const E2EConfig& cfg)
     NS_ABORT_MSG_IF(!HasAnySegmentEnabled(cfg),
                     "At least one segment must be enabled for the e2e run");
 
-    NS_ABORT_MSG_IF(cfg.mode != "sat2sat" && cfg.mode != "gw2gw" && cfg.mode != "gw2ut",
-                    "mode must be one of: sat2sat, gw2gw, gw2ut");
+    NS_ABORT_MSG_IF(cfg.pathType != "gw2sat" &&
+                        cfg.pathType != "sat2sat" &&
+                        cfg.pathType != "sat2ut" &&
+                        cfg.pathType != "sat2gw" &&
+                        cfg.pathType != "gw2ut_e2e" &&
+                        cfg.pathType != "gw2gw_e2e",
+                    "pathType must be one of: gw2sat, sat2sat, sat2ut, sat2gw, "
+                    "gw2ut_e2e, gw2gw_e2e");
 
-    if (cfg.mode == "gw2gw")
+    if (cfg.pathType == "sat2sat")
+    {
+        NS_ABORT_MSG_IF(cfg.satSrc == cfg.satDst,
+                        "satSrc and satDst must be different in sat2sat pathType");
+    }
+
+    if (PathTypeUsesGwPair(cfg.pathType))
     {
         NS_ABORT_MSG_IF(cfg.gwSrc == cfg.gwDst,
-                        "gwSrc and gwDst must be different in gw2gw mode");
+                        "gwSrc and gwDst must be different in gw2gw_e2e pathType");
         NS_ABORT_MSG_IF(FindGatewayPreset(cfg.gwSrc) == nullptr,
                         "Unknown gwSrc=" << cfg.gwSrc);
         NS_ABORT_MSG_IF(FindGatewayPreset(cfg.gwDst) == nullptr,
                         "Unknown gwDst=" << cfg.gwDst);
     }
 
-    if (cfg.mode != "gw2gw" || HasEdgeSegmentEnabled(cfg))
+    if ((PathTypeUsesGwPair(cfg.pathType) && HasEdgeSegmentEnabled(cfg)) ||
+        PathTypeNeedsGatewayAnchor(cfg.pathType))
     {
-        uint32_t gwCheckId = (cfg.mode == "gw2gw") ? cfg.gwSrc : cfg.gwId;
+        uint32_t gwCheckId = PathTypeUsesGwPair(cfg.pathType) ? cfg.gwSrc : cfg.gwId;
         NS_ABORT_MSG_IF(FindGatewayPreset(gwCheckId) == nullptr,
                         "Unknown gwId=" << gwCheckId);
     }
 
-    if (cfg.feederlink.enabled && cfg.isl.enabled && cfg.servicelink.enabled && cfg.mode == "gw2ut")
+    if (cfg.feederlink.enabled && cfg.isl.enabled && cfg.servicelink.enabled &&
+        PathTypeUsesGwUtPair(cfg.pathType))
     {
-        NS_ABORT_MSG_IF(cfg.utName.empty(), "utName must not be empty for full gw2ut e2e");
+        NS_ABORT_MSG_IF(cfg.utName.empty(), "utName must not be empty for gw2ut_e2e");
     }
 }
 
@@ -811,7 +868,8 @@ BuildE2EPlan(const E2EConfig& cfg)
     ValidateE2EConfig(cfg);
 
     E2EExecutionPlan plan;
-    plan.edgeGatewayId = (cfg.mode == "gw2gw") ? cfg.gwSrc : cfg.gwId;
+    plan.edgeGatewayId = PathTypeUsesGwPair(cfg.pathType) ? cfg.gwSrc : cfg.gwId;
+    plan.includesIsl = PathTypeIncludesIsl(cfg.pathType);
 
     switch (cfg.legacyProfile)
     {
@@ -837,7 +895,7 @@ BuildE2EPlan(const E2EConfig& cfg)
 
         if (HasEdgeSegmentEnabled(cfg))
         {
-            if (cfg.mode == "gw2gw")
+            if (PathTypeUsesGwPair(cfg.pathType))
             {
                 plan.installGw2GwDirectTraffic = true;
             }
@@ -855,7 +913,8 @@ BuildE2EPlan(const E2EConfig& cfg)
 static void
 PrintE2ERunBanner(const E2EConfig& cfg, const E2EExecutionPlan& plan)
 {
-    std::cout << "\n[E2E] mode=" << cfg.mode
+    std::cout << "\n[E2E] pathType=" << cfg.pathType
+              << " includesIsl=" << (plan.includesIsl ? "yes" : "no")
               << " segments={"
               << "feederlink=" << (cfg.feederlink.enabled ? "on" : "off") << ", "
               << "isl=" << (cfg.isl.enabled ? "on" : "off") << ", "
@@ -1116,7 +1175,7 @@ InstallIslTraffic(Ptr<SimulationHelper>   simHelper,
 
     if (plan.installIslBackgroundTraffic)
     {
-        uint32_t gwAnchorId = (cfg.mode == "gw2gw") ? cfg.gwSrc : cfg.gwId;
+        uint32_t gwAnchorId = PathTypeUsesGwPair(cfg.pathType) ? cfg.gwSrc : cfg.gwId;
         InstallSat2SatBackgroundLoad(simHelper, cfg.simTimeSec, gwAnchorId);
         return;
     }
@@ -1186,7 +1245,7 @@ ConfigureRoutingCase(Ptr<IslRoutingManager> routingMgr,
                      const E2EConfig&       cfg,
                      double                 elevMinDeg)
 {
-    if (cfg.mode == "sat2sat")
+    if (cfg.pathType == "sat2sat")
     {
         std::cout << "\n[CASE] sat2sat | src=" << cfg.satSrc
                   << " dst=" << cfg.satDst << "\n";
@@ -1194,17 +1253,38 @@ ConfigureRoutingCase(Ptr<IslRoutingManager> routingMgr,
         return;
     }
 
-    if (cfg.mode == "gw2gw")
+    if (cfg.pathType == "gw2gw_e2e")
     {
         routingMgr->SetGwElevationThreshold(elevMinDeg);
         AddGatewayOrAbort(routingMgr, cfg.gwSrc);
         AddGatewayOrAbort(routingMgr, cfg.gwDst);
         routingMgr->AddGwPair(cfg.gwSrc, cfg.gwDst);
 
-        std::cout << "\n[CASE] gw2gw | gwSrc=" << cfg.gwSrc
+        std::cout << "\n[CASE] gw2gw_e2e | gwSrc=" << cfg.gwSrc
                   << " gwDst=" << cfg.gwDst << "\n";
         routingMgr->PrecomputeGwRoutes();
         routingMgr->PrintGwRouteReport();
+        return;
+    }
+
+    if (cfg.pathType == "gw2sat")
+    {
+        std::cout << "\n[CASE] gw2sat | gwId=" << cfg.gwId
+                  << " | feederlink_up only | isl_cost=N/A\n";
+        return;
+    }
+
+    if (cfg.pathType == "sat2ut")
+    {
+        std::cout << "\n[CASE] sat2ut | utId=" << cfg.utId
+                  << " | servicelink only | isl_cost=N/A\n";
+        return;
+    }
+
+    if (cfg.pathType == "sat2gw")
+    {
+        std::cout << "\n[CASE] sat2gw | gwId=" << cfg.gwId
+                  << " | feederlink_dn only | isl_cost=N/A\n";
         return;
     }
 
@@ -1213,7 +1293,7 @@ ConfigureRoutingCase(Ptr<IslRoutingManager> routingMgr,
     routingMgr->AddUserTerminal(cfg.utId, cfg.utLatDeg, cfg.utLonDeg, cfg.utName);
     routingMgr->AddGwUtPair(cfg.gwId, cfg.utId);
 
-    std::cout << "\n[CASE] gw2ut | gwId=" << cfg.gwId
+    std::cout << "\n[CASE] gw2ut_e2e | gwId=" << cfg.gwId
               << " utId=" << cfg.utId
               << " utLatDeg=" << cfg.utLatDeg
               << " utLonDeg=" << cfg.utLonDeg << "\n";
@@ -1234,7 +1314,7 @@ main(int argc, char* argv[])
         ns3BasePath + "/contrib/satellite/data/scenarios/" +
         scenarioName + "/positions/isls.txt";
 
-    std::string mode = "gw2gw";
+    std::string pathType = "gw2gw_e2e";
     std::string trafficProf = "none";
     bool        enableFeederlink = false;
     bool        enableIsl = false;
@@ -1273,7 +1353,10 @@ main(int argc, char* argv[])
     double      obsDropAlertPct = 50.0;                // drop rate 事件觸發門檻
 
     CommandLine cmd;
-    cmd.AddValue("mode", "Routing case: sat2sat | gw2gw | gw2ut", mode);
+    cmd.AddValue("mode",
+                 "Path type: gw2sat | sat2sat | sat2ut | sat2gw | gw2ut_e2e | gw2gw_e2e "
+                 "(legacy aliases: gw2ut, gw2gw)",
+                 pathType);
     cmd.AddValue("trafficProfile", "Legacy profile: none | gw2ut | sat2sat | gw2gw | gw2gw_direct", trafficProf);
     cmd.AddValue("enableFeederlink", "Enable feederlink segment for e2e orchestration (0/1)", enableFeederlink);
     cmd.AddValue("enableIsl", "Enable ISL segment for e2e orchestration (0/1)", enableIsl);
@@ -1294,14 +1377,14 @@ main(int argc, char* argv[])
     cmd.AddValue("satSrc", "Source satellite ID for sat2sat", satSrc);
     cmd.AddValue("satDst", "Destination satellite ID for sat2sat", satDst);
 
-    cmd.AddValue("gwSrc", "Source gateway preset ID for gw2gw", gwSrc);
-    cmd.AddValue("gwDst", "Destination gateway preset ID for gw2gw", gwDst);
+    cmd.AddValue("gwSrc", "Source gateway preset ID for gw2gw_e2e", gwSrc);
+    cmd.AddValue("gwDst", "Destination gateway preset ID for gw2gw_e2e", gwDst);
 
-    cmd.AddValue("gwId", "Gateway preset ID for gw2ut", gwId);
-    cmd.AddValue("utId", "User terminal ID for gw2ut", utId);
-    cmd.AddValue("utLatDeg", "UT latitude (deg) for gw2ut", utLatDeg);
-    cmd.AddValue("utLonDeg", "UT longitude (deg) for gw2ut", utLonDeg);
-    cmd.AddValue("utName", "UT name for gw2ut", utName);
+    cmd.AddValue("gwId", "Gateway preset ID for gw2sat/sat2gw/gw2ut_e2e", gwId);
+    cmd.AddValue("utId", "User terminal ID for sat2ut/gw2ut_e2e", utId);
+    cmd.AddValue("utLatDeg", "UT latitude (deg) for sat2ut/gw2ut_e2e", utLatDeg);
+    cmd.AddValue("utLonDeg", "UT longitude (deg) for sat2ut/gw2ut_e2e", utLonDeg);
+    cmd.AddValue("utName", "UT name for sat2ut/gw2ut_e2e", utName);
 
     cmd.AddValue("fwd", "Enable FWD link (GW->UT) CBR traffic (0/1)", trafficCfg.enableFwd);
     cmd.AddValue("rtn", "Enable RTN link (UT->GW) CBR traffic (0/1)", trafficCfg.enableRtn);
@@ -1336,9 +1419,10 @@ main(int argc, char* argv[])
                     "satSrc/satDst must be < " << numSats);
 
     TrafficProfile profile = ParseTrafficProfile(trafficProf);
+    pathType = NormalizePathType(pathType);
 
     E2EConfig e2eCfg;
-    e2eCfg.mode = mode;
+    e2eCfg.pathType = pathType;
     e2eCfg.legacyProfile = profile;
     e2eCfg.explicitSegments = enableFeederlink || enableIsl || enableServicelink;
     e2eCfg.simTimeSec = simTime;
@@ -1368,7 +1452,7 @@ main(int argc, char* argv[])
     const uint32_t numSlots =
         static_cast<uint32_t>(std::floor(simTime / slotInterval)) + 1;
 
-    std::cout << "[CFG] mode=" << mode
+    std::cout << "[CFG] pathType=" << pathType
               << " trafficProfile=" << trafficProf
               << " simTime=" << simTime
               << " slotInterval=" << slotInterval

@@ -44,6 +44,17 @@ namespace ns3
 
 NS_OBJECT_ENSURE_REGISTERED(IslRoutingManager);
 
+namespace
+{
+
+bool
+HasIslTransitPath(const std::vector<uint32_t>& satPath)
+{
+    return satPath.size() > 1;
+}
+
+} // namespace
+
 // ── 偵錯巨集 ──────────────────────────────────────────────────────────────
 
 #define CHKPT(msg)                                                              \
@@ -1392,8 +1403,10 @@ IslRoutingManager::PrintGwRouteReport() const
                 bool        changed = (k > 0 && pathStr != prevPathStr);
 
                 std::ostringstream costSs;
-                if (r.valid)
+                if (r.valid && HasIslTransitPath(r.satPath))
                     costSs << std::fixed << std::setprecision(6) << r.islCost;
+                else if (r.valid)
+                    costSs << "N/A";
                 else
                     costSs << "-";
 
@@ -1435,8 +1448,10 @@ IslRoutingManager::PrintGwRouteReport() const
                 bool        changed = (k > 0 && pathStr != prevPathStr);
 
                 std::ostringstream costSs;
-                if (r.valid)
+                if (r.valid && HasIslTransitPath(r.satPath))
                     costSs << std::fixed << std::setprecision(6) << r.islCost;
+                else if (r.valid)
+                    costSs << "N/A";
                 else
                     costSs << "-";
 
@@ -1829,8 +1844,10 @@ IslRoutingManager::PrintGwUtRouteReport() const
             bool        changed = (k > 0 && pathStr != prevPathStr);
 
             std::ostringstream costSs;
-            if (r.valid)
+            if (r.valid && HasIslTransitPath(r.satPath))
                 costSs << std::fixed << std::setprecision(6) << r.islCost;
+            else if (r.valid)
+                costSs << "N/A";
             else
                 costSs << "-";
 

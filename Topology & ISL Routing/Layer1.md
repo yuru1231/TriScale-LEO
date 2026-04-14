@@ -1004,3 +1004,219 @@ TOTAL: N pkts, 0 dropped | drop_rate=0.000% | success_rate=100.000%
 
 ---
 
+
+
+## test-iridium-e2e.cc — E2E 三段架構
+
+
+### 架構概覽
+
+```
+E2E 三段架構（test-iridium-e2e.cc）
+
+  GW ──FEEDERLINK──► Entry SAT..──ISL──►..Exit SAT ──SERVICELINK──► UT
+
+
+Link Observer（自訂，掛接於 SNS3 trace 之上）：
+
+  ConnectLinkObserverTraces()
+     ├─ SatOrbiterNetDevice::RxFeeder  × 66   → feeder RX 封包 / bytes / delay
+     ├─ SatOrbiterNetDevice::RxUser    × 66   → service RX 封包 / bytes
+     └─ PointToPointIslNetDevice::PacketDropRateTrace × 264  → tx / rx / drop / tput window
+
+  TakeObsSnapshot() 每 obsIntervalSec 秒
+     ├─ drop_rate > dropAlertThreshPct → [OBS][EVENT] LINK DEGRADED
+     └─ throughput = 0               → [OBS][EVENT] POSSIBLE LINK FAILURE
+     └─ 寫入 e2e_link_obs.csv（--obsLogPath）
+```
+SNS3 原生模組對應：
+
+  |feederlink        |        ISL         |               servicelink|
+  |-|-|-|
+ | SatTrafficHelper   |       PointToPointIslNetDevice  |  SatTrafficHelper|
+  |GW ↔ SAT beam traffic  |   routing / drop trace     |   SAT ↔ UT spot beam traffic|
+ | (SatOrbiterNetDevice::RxFeeder 量測)     |  (PacketDropRateTrace)  |     (SatOrbiterNetDevice::RxUser 量測)|                             
+
+  位置查詢（全段共用）：SGP4 Mobility → GetPositionsAt(t) → 66 顆衛星即時位置
+### 執行流程圖
+
+```mermaid
+flowchart TD
+    A([Start]) --> B["解析 CLI 參數\n設定 NS3 全域屬性"]
+
+    B --> C{"未指定 --enableXxx?"}
+    C -->|Yes| D["依 pathType / trafficProfile\n自動推斷啟用哪些段\nfeederlink / isl / servicelink"]
+    C -->|No| E["沿用明確指定的段設定"]
+    D --> F["驗證參數 / 建立執行計畫\npathType 合法 / gwSrc≠gwDst\n決定安裝哪種流量型態"]
+    E --> F
+
+    F --> G["建立衛星場景\nSNS3 GW / SAT / UT / beam 節點"]
+
+    G --> H["掛載 ISL 丟包 trace\n建立 Node → SatId 對照表"]
+
+    H --> I["掛載鏈路觀測 callbacks\nfeeder / service / ISL 三段\n開啟 CSV log"]
+
+    I --> J["安裝流量\n依執行計畫決定型態\nfeederlink → ISL → servicelink"]
+
+    J --> K["初始化路由管理器\n讀 ISL 定義 / 快取衛星裝置"]
+
+    K --> L["離線預計算所有時槽路由表\nSGP4 衛星位置 → ISL 圖 → Dijkstra\n存入 m_tables"]
+
+    L --> M{"pathType?"}
+    M -->|sat2sat| M1["輸出 sat2sat 路徑報告"]
+    M -->|gw2gw_e2e| M2["計算並輸出 GW→GW 路由表"]
+    M -->|gw2ut_e2e| M3["計算並輸出 GW→UT 路由表"]
+    M -->|gw2sat / sat2gw / sat2ut| M4["標示路徑型態\n無需額外路由計算"]
+
+    M1 --> N["排程路由更新事件\n每 slotInterval 秒觸發一次"]
+    M2 --> N
+    M3 --> N
+    M4 --> N
+
+    N --> O([Simulator::Run 模擬開始])
+
+    subgraph SIM ["模擬期間（並行發生）"]
+        direction TB
+        S1["每個時槽\n將路由表寫入 Arbiter"]
+        S1 --> S2{"負載變化顯著?"}
+        S2 -->|No| S3["套用預計算路由"]
+        S2 -->|Yes| S4["局部重算受影響路由\n更新路由表"]
+        S3 --> S5["路由生效，封包依新路由轉發"]
+        S4 --> S5
+
+        S6["每隔 obsIntervalSec\n抓取鏈路狀態快照\n寫入 CSV / 觸發異常告警"]
+    end
+
+    O --> SIM
+    SIM --> P([模擬結束])
+
+    P --> Q["輸出鏈路觀測總覽\nfeeder / service / ISL 統計"]
+    Q --> R["輸出路由效能統計\n各槽 apply / recompute 耗時"]
+    R --> S7["輸出各 ISL 負載成本"]
+    S7 --> T["輸出 ISL 丟包率\nPASS / FAIL 判定"]
+    T --> END([End])
+```
+
+---
+
+### 核心概念：E2E 三段
+
+| 段 | Enum | 方向 | 說明 |
+|----|------|------|------|
+| feederlink | `FEEDERLINK` | GW ↔ SAT | 地面閘道器與衛星之間的上下行鏈路 |
+| isl | `ISL` | SAT ↔ SAT | 衛星間 ISL 路由段 |
+| servicelink | `SERVICELINK` | SAT ↔ UT | 衛星與使用者終端之間的鏈路 |
+
+各段可透過 `--enableFeederlink / --enableIsl / --enableServicelink` 獨立開關，不指定時由 `ApplyLegacySegmentDefaults()` 依 pathType 自動推斷。
+
+### 新增資料結構
+
+| 結構 | 說明 |
+|------|------|
+| `E2ESegment` | `{FEEDERLINK, ISL, SERVICELINK}` enum，段的語意標籤 |
+| `E2EConfig` | 統一收納 mode / legacyProfile / segments / simTimeSec / GW/UT ID 等 |
+| `E2ESegmentConfig` | `{enabled, TrafficConfig}`，每段獨立的開關與流量設定 |
+| `E2EExecutionPlan` | `{installSharedEdgeTraffic, installIslBg, installGw2GwBg, installGw2GwDirect}`，流量安裝旗標 |
+| `ObsConfig` | `{snapshotIntervalSec, dropAlertThreshPct, trafficStartSec, logFilePath}`，Link Observer 設定 |
+| `SegLinkStats` | 單條鏈路的 rx/tx/drop 計數、throughput window、delay 累加器 |
+
+### 新增函式
+
+| 函式 | 說明 |
+|------|------|
+| `ValidateE2EConfig()` | 前置斷言：mode 合法性、gwSrc≠gwDst、gwId preset 存在、utName 非空等 |
+| `ApplyLegacySegmentDefaults()` | 未指定 `--enableXxx` 時依 legacyProfile 自動推斷啟用段 |
+| `BuildE2EPlan()` | 呼叫 ValidateE2EConfig，依 profile 填充 E2EExecutionPlan |
+| `PrintE2ERunBanner()` | 模擬開始前列印 mode / segments on/off / traffic flags 摘要 |
+| `InstallFeederlinkTraffic()` | 依 plan 旗標安裝 feederlink 段流量 |
+| `InstallIslTraffic()` | 依 plan 旗標安裝 isl 段流量（或標示 routing-only）|
+| `InstallServicelinkTraffic()` | 依 plan 旗標安裝 servicelink 段流量 |
+| `InstallE2ETraffic()` | 依序呼叫三段安裝函式的組合入口 |
+| `ConfigureRoutingCase()` | 將 main() 中的 if/else routing 設定抽出，以 E2EConfig 為參數 |
+
+### Link Observer（E2E 鏈路觀測器）
+
+連接時機：`ConnectIslDropTrace()` 之後呼叫 `ConnectLinkObserverTraces()`（依賴 `g_nodeToSatId`）。
+
+**觀測對象**：
+
+| trace source | SNS3 API | 記錄內容 |
+|---|---|---|
+| feeder RX | `SatOrbiterNetDevice::RxFeeder` | FWD 方向封包數 / bytes / delay |
+| service RX | `SatOrbiterNetDevice::RxUser` | RTN 方向封包數 / bytes |
+| ISL drop | `PointToPointIslNetDevice::PacketDropRateTrace` | tx/rx/drop 計數、throughput window |
+
+**快照機制**：每 `obsIntervalSec` 秒觸發 `TakeObsSnapshot()`，寫入 CSV（`--obsLogPath`），並偵測：
+- drop rate 超過 `dropAlertThreshPct` → 輸出 `[OBS][EVENT] LINK DEGRADED`
+- window throughput 歸零 → 輸出 `[OBS][EVENT] POSSIBLE LINK FAILURE`
+
+### 新增 CLI 參數（test-iridium-e2e.cc）
+
+| 參數 | 型別 | 預設值 | 說明 |
+|------|------|--------|------|
+| `--mode` | string | `gw2gw_e2e` | 支援 6 種 pathType（見下表）|
+| `--enableFeederlink` | bool | false | 啟用 feederlink 段 |
+| `--enableIsl` | bool | false | 啟用 ISL 段 |
+| `--enableServicelink` | bool | false | 啟用 servicelink 段 |
+| `--obsLogPath` | string | `e2e_link_obs.csv` | Link Observer CSV 輸出路徑 |
+| `--obsInterval` | double | 10.0 | 快照週期（秒）|
+| `--obsDropAlertPct` | double | 50.0 | drop rate 事件觸發門檻（%）|
+
+**支援的 pathType：**
+
+| pathType | 語意 | 預設啟用段 |
+|----------|------|-----------|
+| `gw2sat` | GW→SAT feederlink 上行 | feederlink |
+| `sat2gw` | SAT→GW feederlink 下行 | feederlink |
+| `sat2sat` | SAT→SAT ISL 路由 | isl |
+| `sat2ut` | SAT→UT service link | servicelink |
+| `gw2ut_e2e` | GW→UT 完整三段 E2E | feederlink + isl + servicelink |
+| `gw2gw_e2e` | GW→GW 完整三段 E2E | feederlink + isl + servicelink |
+
+---
+
+## 驗證結果（2026-04-14，test-iridium-e2e）
+
+**環境**：Iridium-66 星座，simTime=120s，slotInterval=60s，3 slots，ISL=10Mbps/5000km，elevMinDeg=5°
+
+### 六種 pathType 驗證總覽
+
+| pathType | 場景 | 資料平面 | ISL drop | feeder obs | 動態重算 | 詳細 |
+|----------|------|---------|----------|------------|---------|------|
+| `gw2gw_e2e` | TW→US (9000km) | 603,648B [PASS] | 0.000% [PASS] | 全 0（gw2gw_direct 不觸發）| slot1:3/66, slot2:17/66 | [gw2gw_e2e_g0g2_120s.md](Outputs/E2E-PathType/gw2gw_e2e_g0g2_120s.md) |
+| `gw2sat` | TW feederlink up | — | N/A | sat15主（4.62ms）| slot1:3/66, slot2:16/66 | [gw2sat_120s.md](Outputs/E2E-PathType/gw2sat_120s.md) |
+| `sat2gw` | TW feederlink dn | — | N/A | 同gw2sat（對稱）| slot1:3/66, slot2:16/66 | [sat2gw_120s.md](Outputs/E2E-PathType/sat2gw_120s.md) |
+| `sat2sat` | SAT0→SAT33, 7 hops | — | N/A（ISL bg）| N/A | slot1:13/66, slot2:21/66 | [sat2sat_s0s33_120s.md](Outputs/E2E-PathType/sat2sat_s0s33_120s.md) |
+| `gw2ut_e2e` | TW→UT-Taipei (< 10km) | — | N/A | sat15主，isl_cost=N/A（同SAT）| slot1:3/66, slot2:16/66 | [gw2ut_e2e_ut0_120s.md](Outputs/E2E-PathType/gw2ut_e2e_ut0_120s.md) |
+| `sat2ut` | SAT→UT-Taipei servicelink | — | N/A | 同gw2sat（底層相同）| slot1:3/66, slot2:16/66 | [sat2ut_ut0_120s.md](Outputs/E2E-PathType/sat2ut_ut0_120s.md) |
+
+### 共通觀察
+
+1. **ISL trace**：全 6 個 pathType 均成功連接 264 介面（132 unique links），`g_nodeToSatId` 建立正常
+2. **OBS traces**：`ConnectLinkObserverTraces()` 成功掛接 feeder=66, service=66, isl=264，OBS 框架運作正常
+3. **動態路由**：所有場景 slot1 / slot2 均觸發 `HasSignificantChange=YES`，`RecomputeAffectedRoutes` 局部重算正常
+4. **sat61 service 事件**：出現在 5/6 個場景（gw2gw_e2e 除外），原因是 sat61 本身在 beamId=1 場景下沒有 service link 覆蓋，屬於已知 false alarm，非鏈路故障
+5. **gw2gw_direct 資料平面**：120s 交付 603,648 bytes，端到端 ISL 路徑確認有效
+
+### gw2gw_e2e ISL 路由（TW-Taipei → US-SanFrancisco）
+
+| slot | time(s) | entry | ISL path | exit | isl_cost(s) |
+|------|---------|-------|----------|------|-------------|
+| 0 | 0 | SAT15 | 15→14→25→36→37 | SAT37 | 0.043969 |
+| 1 | 60 | SAT15 | 15→14→25→36→37 | SAT37 | 0.046214 |
+| 2 | 120 | SAT15 | 15→14→13→2→1 | SAT1 | 0.047600 ← ROUTE CHANGED |
+
+> Slot 2 切換原因：SF 側 GW2 可見衛星由 SAT37 換為 SAT1（仰角變化），exit sat 改變觸發整條路徑重算。與 baseline 630s 的 slot 2 結果完全一致（驗證 pathType 重構無影響路由計算）。
+
+### sat2sat ISL 路由（SAT0 → SAT33）
+
+| slot | time(s) | full_path | route_cost |
+|------|---------|-----------|------------|
+| 0 | 0 | 0→1→2→57→46→35→34→33 | 0.078176 |
+| 1 | 60 | 0→1→2→57→46→35→34→33 | 0.074919 |
+| 2 | 120 | 0→1→2→57→46→35→34→33 | 0.072055 |
+
+> 120s 窗口內路徑穩定，route_cost 持續下降（衛星軌道收斂），與 baseline 630s 前三槽完全一致。
+
+---
+
