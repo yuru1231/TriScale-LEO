@@ -1406,7 +1406,7 @@ IslRoutingManager::PrintGwRouteReport() const
                 if (r.valid && HasIslTransitPath(r.satPath))
                     costSs << std::fixed << std::setprecision(6) << r.islCost;
                 else if (r.valid)
-                    costSs << "N/A";
+                    costSs << "no ISL hop";
                 else
                     costSs << "-";
 
@@ -1451,7 +1451,7 @@ IslRoutingManager::PrintGwRouteReport() const
                 if (r.valid && HasIslTransitPath(r.satPath))
                     costSs << std::fixed << std::setprecision(6) << r.islCost;
                 else if (r.valid)
-                    costSs << "N/A";
+                    costSs << "no ISL hop";
                 else
                     costSs << "-";
 

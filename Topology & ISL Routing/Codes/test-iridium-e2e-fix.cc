@@ -7,6 +7,7 @@
 #include "ns3/traffic-module.h"
 #include "ns3/isl-graph.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <cmath>
@@ -286,6 +287,128 @@ static uint64_t                            g_totalOrbiterFeederRxCalls{0};
 static std::map<std::string, double>       g_prevObsDropRate;  // previous drop_rate per link for alert state machine
 static std::map<std::string, double>       g_prevObsThroughputKbps;
 
+static std::string
+CsvEscape(const std::string& value)
+{
+    if (value.find_first_of(",\"\n") == std::string::npos)
+    {
+        return value;
+    }
+
+    std::string escaped = "\"";
+    for (char c : value)
+    {
+        if (c == '"')
+        {
+            escaped += "\"\"";
+        }
+        else
+        {
+            escaped += c;
+        }
+    }
+    escaped += "\"";
+    return escaped;
+}
+
+template <typename T>
+static std::string
+SetToString(const std::set<T>& values)
+{
+    std::ostringstream oss;
+    bool first = true;
+    for (const auto& value : values)
+    {
+        if (!first)
+        {
+            oss << "|";
+        }
+        first = false;
+        oss << value;
+    }
+    return oss.str();
+}
+
+static std::string
+SatPathToString(const std::vector<uint32_t>& path)
+{
+    if (path.empty())
+    {
+        return "";
+    }
+
+    std::ostringstream oss;
+    for (size_t i = 0; i < path.size(); ++i)
+    {
+        if (i > 0)
+        {
+            oss << "->";
+        }
+        oss << "sat" << path[i];
+    }
+    return oss.str();
+}
+
+static std::string
+Ipv4ToString(Ipv4Address address)
+{
+    std::ostringstream oss;
+    oss << address;
+    return oss.str();
+}
+
+class Gw2GwTxTimeTag : public Tag
+{
+  public:
+    static TypeId GetTypeId()
+    {
+        static TypeId tid = TypeId("ns3::Gw2GwTxTimeTag")
+                                .SetParent<Tag>()
+                                .AddConstructor<Gw2GwTxTimeTag>();
+        return tid;
+    }
+
+    TypeId GetInstanceTypeId() const override
+    {
+        return GetTypeId();
+    }
+
+    uint32_t GetSerializedSize() const override
+    {
+        return sizeof(uint64_t);
+    }
+
+    void Serialize(TagBuffer i) const override
+    {
+        i.WriteU64(m_txTimeNs);
+    }
+
+    void Deserialize(TagBuffer i) override
+    {
+        m_txTimeNs = i.ReadU64();
+    }
+
+    void Print(std::ostream& os) const override
+    {
+        os << m_txTimeNs;
+    }
+
+    void SetTxTime(Time txTime)
+    {
+        m_txTimeNs = txTime.GetNanoSeconds();
+    }
+
+    Time GetTxTime() const
+    {
+        return NanoSeconds(m_txTimeNs);
+    }
+
+  private:
+    uint64_t m_txTimeNs{0};
+};
+
+NS_OBJECT_ENSURE_REGISTERED(Gw2GwTxTimeTag);
+
 struct EndpointLayerStats
 {
     bool     connected{false};
@@ -340,6 +463,10 @@ struct Gw2GwAppDeliveryStats
     uint64_t    traceRxBytes{0};
     uint64_t    rxBytes{0};
     uint64_t    estPkts{0};
+    uint64_t    delaySamples{0};
+    double      sumDelayMs{0.0};
+    double      minDelayMs{0.0};
+    double      maxDelayMs{0.0};
 };
 
 static Gw2GwAppDeliveryStats g_gw2gwDelivery;
@@ -358,7 +485,11 @@ static ObsScope g_obsScope;
 static ObsScope g_obsVerdictScope;
 
 static NodeContainer GetGwUsers(uint32_t gwId);
+static NodeContainer GetPhysicalGwNodes(uint32_t gwId);
+static NodeContainer GetGwTrafficNodes(uint32_t gwId, const std::string& gwMode);
 static NodeContainer GetGwNodesById(uint32_t gwId);
+static Ptr<Node> GetPhysicalGwNodeOrNull(uint32_t gwId);
+static Ipv4Address GetPhysicalGwRoutableIp(Ptr<Node> node, uint32_t gwId);
 
 static std::string
 MakeSatKey(uint32_t satId)
@@ -492,6 +623,25 @@ Gw2GwAppRxCb(Ptr<const Packet> pkt, const Address& /*from*/)
 {
     g_gw2gwDelivery.traceRxPkts++;
     g_gw2gwDelivery.traceRxBytes += pkt->GetSize();
+
+    Gw2GwTxTimeTag txTag;
+    Ptr<Packet> copy = pkt->Copy();
+    if (copy->PeekPacketTag(txTag))
+    {
+        double oneWayDelayMs = (Simulator::Now() - txTag.GetTxTime()).GetMilliSeconds();
+        g_gw2gwDelivery.delaySamples++;
+        g_gw2gwDelivery.sumDelayMs += oneWayDelayMs;
+        if (g_gw2gwDelivery.delaySamples == 1)
+        {
+            g_gw2gwDelivery.minDelayMs = oneWayDelayMs;
+            g_gw2gwDelivery.maxDelayMs = oneWayDelayMs;
+        }
+        else
+        {
+            g_gw2gwDelivery.minDelayMs = std::min(g_gw2gwDelivery.minDelayMs, oneWayDelayMs);
+            g_gw2gwDelivery.maxDelayMs = std::max(g_gw2gwDelivery.maxDelayMs, oneWayDelayMs);
+        }
+    }
 }
 
 static void
@@ -584,6 +734,40 @@ InstallEndpointAppSink(Ptr<SimulationHelper>      simHelper,
 
     Ptr<SatHelper> satHelper = simHelper->GetSatelliteHelper();
     Ipv4Address addr = satHelper->GetUserAddress(node);
+
+    PacketSinkHelper sink("ns3::UdpSocketFactory",
+                          InetSocketAddress(addr, g_endpointProbe.port));
+    ApplicationContainer sinkApps = sink.Install(node);
+    target.app.installed = (sinkApps.GetN() > 0);
+    if (!target.app.installed)
+    {
+        target.reason = "app_sink_install_failed";
+        return;
+    }
+
+    target.app.sink = DynamicCast<PacketSink>(sinkApps.Get(0));
+    target.app.traceConnected =
+        sinkApps.Get(0)->TraceConnectWithoutContext(
+            "Rx",
+            MakeBoundCallback(&EndpointAppRxCb, &target.app));
+    sinkApps.Start(Seconds(0.0));
+    sinkApps.Stop(Seconds(stopSec));
+}
+
+static void
+InstallEndpointAppSinkAtAddress(Ptr<Node>                 node,
+                                Ipv4Address               addr,
+                                EndpointProbeTargetStats& target,
+                                double                    stopSec)
+{
+    if (!node)
+    {
+        if (target.reason.empty())
+        {
+            target.reason = "app_node_missing";
+        }
+        return;
+    }
 
     PacketSinkHelper sink("ns3::UdpSocketFactory",
                           InetSocketAddress(addr, g_endpointProbe.port));
@@ -1304,7 +1488,6 @@ struct E2EConfig
 {
     std::string pathType{"gw2gw_e2e"};
     double      simTimeSec{0.0};
-    double      slotIntervalSec{60.0};
 
     E2ESegmentConfig feederlink{};
     E2ESegmentConfig isl{};
@@ -1318,10 +1501,11 @@ struct E2EConfig
     uint32_t utId{0};
     uint32_t trafficUtUserId{0};
     bool     trafficUtUserIdResolved{false};
-    bool     gwUtVerbose{false};
     double   utLatDeg{0.0};
     double   utLonDeg{0.0};
     std::string utName;
+    std::string gwMode{"user"};
+    std::string regenerationMode{"network"};
 };
 
 enum class TrafficKind
@@ -1406,6 +1590,75 @@ FindGatewayPreset(uint32_t gwId)
     return nullptr;
 }
 
+static std::set<uint32_t>
+BuildGatewayBootstrapBeamSet(const std::string& rtnConfFilePath,
+                             uint32_t           gatewayCount,
+                             uint32_t           requestedBeamId)
+{
+    std::set<uint32_t> beams;
+    std::set<uint32_t> coveredGatewayIds;
+    beams.insert(requestedBeamId);
+
+    std::ifstream in(rtnConfFilePath);
+    if (!in.is_open())
+    {
+        std::cout << "[TOPO_BOOTSTRAP] WARNING: cannot open " << rtnConfFilePath
+                  << "; only requested beam " << requestedBeamId << " will be enabled\n";
+        return beams;
+    }
+
+    uint32_t beam = 0;
+    uint32_t userChannel = 0;
+    uint32_t gwIdFromFile = 0;
+    uint32_t feederChannel = 0;
+    uint32_t rowIndex = 0;
+    while (in >> beam >> userChannel >> gwIdFromFile >> feederChannel)
+    {
+        // In constellation scenarios, SatConf::Initialize rewrites each beam's GW id as
+        // (rowIndex % gwCount) + 1. Mirror that runtime mapping here so the bootstrap
+        // beams actually cover every physical GW that SNS3 will register.
+        uint32_t gwIdOneBased = (rowIndex % gatewayCount) + 1;
+        ++rowIndex;
+        if (gwIdOneBased == 0 || gwIdOneBased > gatewayCount)
+        {
+            continue;
+        }
+        if (coveredGatewayIds.insert(gwIdOneBased).second)
+        {
+            beams.insert(beam);
+        }
+        if (coveredGatewayIds.size() == gatewayCount)
+        {
+            break;
+        }
+    }
+
+    if (coveredGatewayIds.size() != gatewayCount)
+    {
+        std::cout << "[TOPO_BOOTSTRAP] WARNING: covered " << coveredGatewayIds.size()
+                  << "/" << gatewayCount << " gateway ids from " << rtnConfFilePath << "\n";
+    }
+
+    return beams;
+}
+
+static std::string
+FormatBeamSet(const std::set<uint32_t>& beams)
+{
+    std::ostringstream oss;
+    bool first = true;
+    for (uint32_t beam : beams)
+    {
+        if (!first)
+        {
+            oss << ",";
+        }
+        oss << beam;
+        first = false;
+    }
+    return oss.str();
+}
+
 static void
 AddGatewayOrAbort(Ptr<IslRoutingManager> routingMgr, uint32_t gwId)
 {
@@ -1414,164 +1667,6 @@ AddGatewayOrAbort(Ptr<IslRoutingManager> routingMgr, uint32_t gwId)
                     "Unknown gwId=" << gwId
                     << ". Supported presets: 0(Tokyo), 1(NewDelhi), 2(Shanghai), 3(SaoPaulo), 4(Mumbai)");
     routingMgr->AddGateway(gw->id, gw->latDeg, gw->lonDeg, gw->name);
-}
-
-static Vector
-GeoToEcef(double latDeg, double lonDeg)
-{
-    static constexpr double kEarthRadiusM = 6371000.0;
-
-    const double latRad = latDeg * M_PI / 180.0;
-    const double lonRad = lonDeg * M_PI / 180.0;
-    const double cosLat = std::cos(latRad);
-
-    return Vector(kEarthRadiusM * cosLat * std::cos(lonRad),
-                  kEarthRadiusM * cosLat * std::sin(lonRad),
-                  kEarthRadiusM * std::sin(latRad));
-}
-
-static double
-SlantRangeKm(double obsLatDeg, double obsLonDeg, const Vector& satEcef)
-{
-    Vector obs = GeoToEcef(obsLatDeg, obsLonDeg);
-    const double dx = satEcef.x - obs.x;
-    const double dy = satEcef.y - obs.y;
-    const double dz = satEcef.z - obs.z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz) / 1000.0;
-}
-
-static std::string
-SatSetToString(const std::set<uint32_t>& sats)
-{
-    std::ostringstream oss;
-    oss << "{";
-    bool first = true;
-    for (uint32_t satId : sats)
-    {
-        if (!first)
-        {
-            oss << ",";
-        }
-        first = false;
-        oss << satId;
-    }
-    oss << "}";
-    return oss.str();
-}
-
-static void
-PrintGwUtSelectionDiagnostics(Ptr<IslRoutingManager> routingMgr, const E2EConfig& cfg)
-{
-    if (cfg.pathType != "gw2ut_e2e" && cfg.pathType != "sat2ut")
-    {
-        return;
-    }
-
-    const GatewayPreset* gw = FindGatewayPreset(cfg.gwId);
-    if (gw == nullptr)
-    {
-        std::cout << "[GWUT_DIAG] skip: unknown gwId=" << cfg.gwId << "\n";
-        return;
-    }
-
-    const uint32_t numSlots = routingMgr->GetNumTimeSlots();
-    std::cout << "\n=== GW-to-UT Selection Diagnostics ===\n";
-    std::cout << "  metric(selected): minimal ISL cost only\n";
-    std::cout << "  metric(compare):  GW->entry slant + UT->serving slant\n";
-
-    for (uint32_t k = 0; k < numSlots; ++k)
-    {
-        const Time tau = Seconds(k * cfg.slotIntervalSec);
-        const std::vector<Vector> satPos = routingMgr->GetPositionsAt(tau);
-        const auto& gwVisible = routingMgr->GetGwVisibleSats(cfg.gwId, k);
-        const auto& utVisible = routingMgr->GetUtVisibleSats(cfg.utId, k);
-        const GwToUtRoute route = routingMgr->GetGwUtRoute(cfg.gwId, cfg.utId, k);
-
-        std::set<uint32_t> commonVisible;
-        for (uint32_t satId : gwVisible)
-        {
-            if (utVisible.count(satId))
-            {
-                commonVisible.insert(satId);
-            }
-        }
-
-        double selectedGwKm = std::numeric_limits<double>::infinity();
-        double selectedUtKm = std::numeric_limits<double>::infinity();
-        if (route.valid)
-        {
-            selectedGwKm = SlantRangeKm(gw->latDeg, gw->lonDeg, satPos.at(route.entrySatId));
-            selectedUtKm = SlantRangeKm(cfg.utLatDeg, cfg.utLonDeg, satPos.at(route.servingSatId));
-        }
-
-        bool hasMinSlant = false;
-        uint32_t minSlantEntry = UINT32_MAX;
-        uint32_t minSlantServing = UINT32_MAX;
-        double minSlantTotalKm = std::numeric_limits<double>::infinity();
-        double minSlantIslCost = std::numeric_limits<double>::infinity();
-
-        for (uint32_t entry : gwVisible)
-        {
-            const double gwKm = SlantRangeKm(gw->latDeg, gw->lonDeg, satPos.at(entry));
-            for (uint32_t serving : utVisible)
-            {
-                const double utKm = SlantRangeKm(cfg.utLatDeg, cfg.utLonDeg, satPos.at(serving));
-                const double totalKm = gwKm + utKm;
-                const double islCost =
-                    (entry == serving) ? 0.0 : routingMgr->GetRouteCost(entry, serving, k);
-
-                if (totalKm < minSlantTotalKm)
-                {
-                    hasMinSlant = true;
-                    minSlantEntry = entry;
-                    minSlantServing = serving;
-                    minSlantTotalKm = totalKm;
-                    minSlantIslCost = islCost;
-                }
-            }
-        }
-
-        std::cout << "slot=" << k
-                  << " t=" << tau.GetSeconds() << "s"
-                  << " gwVis=" << SatSetToString(gwVisible)
-                  << " utVis=" << SatSetToString(utVisible)
-                  << " common=" << SatSetToString(commonVisible) << "\n";
-
-        if (!route.valid)
-        {
-            std::cout << "  selected: invalid route\n";
-            continue;
-        }
-
-        std::cout << "  selected: entry=sat" << route.entrySatId
-                  << " serving=sat" << route.servingSatId
-                  << " islCost=" << route.islCost
-                  << " gwSlantKm=" << std::fixed << std::setprecision(1) << selectedGwKm
-                  << " utSlantKm=" << selectedUtKm
-                  << " totalSlantKm=" << (selectedGwKm + selectedUtKm);
-
-        if (route.entrySatId == route.servingSatId)
-        {
-            std::cout << "  reason_hint=common-visible-sat=>islCost0";
-        }
-        std::cout << "\n";
-
-        if (hasMinSlant)
-        {
-            std::cout << "  nearest:  entry=sat" << minSlantEntry
-                      << " serving=sat" << minSlantServing
-                      << " islCost=" << minSlantIslCost
-                      << " totalSlantKm=" << minSlantTotalKm;
-
-            if (minSlantEntry != route.entrySatId || minSlantServing != route.servingSatId)
-            {
-                std::cout << "  <- differs from selected";
-            }
-            std::cout << "\n";
-        }
-    }
-
-    std::cout << "======================================\n";
 }
 
 static NodeContainer
@@ -1751,6 +1846,13 @@ ValidateE2EConfig(const E2EConfig& cfg)
 {
     const PathTypeSpec spec = GetPathTypeSpec(cfg.pathType);
 
+    NS_ABORT_MSG_IF(cfg.gwMode != "user" && cfg.gwMode != "physical",
+                    "gwMode must be either 'user' or 'physical'");
+    NS_ABORT_MSG_IF(cfg.regenerationMode != "network" &&
+                    cfg.regenerationMode != "phy" &&
+                    cfg.regenerationMode != "transparent",
+                    "regenerationMode must be network, phy, or transparent");
+
     if (cfg.pathType == "sat2sat")
     {
         NS_ABORT_MSG_IF(cfg.satSrc == cfg.satDst,
@@ -1829,6 +1931,8 @@ PrintE2ERunBanner(const E2EConfig& cfg, const PathTypePlan& plan)
 {
     std::cout << "\n[E2E] pathType=" << cfg.pathType
               << " includesIsl=" << (plan.spec.includesIsl ? "yes" : "no")
+              << " gwMode=" << cfg.gwMode
+              << " regenerationMode=" << cfg.regenerationMode
               << " segments={"
               << "feederlink=" << (cfg.feederlink.enabled ? "on" : "off") << ", "
               << "isl=" << (cfg.isl.enabled ? "on" : "off") << ", "
@@ -1881,6 +1985,52 @@ GetPhysicalGwNodeOrNull(uint32_t gwId)
     return gws.Get(gwId);
 }
 
+static NodeContainer
+GetPhysicalGwNodes(uint32_t gwId)
+{
+    Ptr<Node> physicalGw = GetPhysicalGwNodeOrNull(gwId);
+    return physicalGw ? NodeContainer(physicalGw) : NodeContainer();
+}
+
+static NodeContainer
+GetGwTrafficNodes(uint32_t gwId, const std::string& gwMode)
+{
+    if (gwMode == "physical")
+    {
+        return GetPhysicalGwNodes(gwId);
+    }
+    return GetGwUsers(gwId);
+}
+
+static Ipv4Address
+GetPhysicalGwRoutableIp(Ptr<Node> node, uint32_t gwId)
+{
+    NS_ABORT_MSG_IF(!node, "[GW] physical GW node missing for gwId=" << gwId);
+
+    Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+    NS_ABORT_MSG_IF(!ipv4, "[GW] physical GW node has no IPv4 stack (gwId=" << gwId << ")");
+
+    for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i)
+    {
+        if (!ipv4->IsUp(i) || ipv4->GetNAddresses(i) == 0)
+        {
+            continue;
+        }
+        Ipv4Address addr = ipv4->GetAddress(i, 0).GetLocal();
+        if (addr == Ipv4Address("127.0.0.1") || addr == Ipv4Address("0.0.0.0"))
+        {
+            continue;
+        }
+        std::cout << "[GW] physical GW" << gwId
+                  << " routable IP=" << addr
+                  << " ifIndex=" << i << "\n";
+        return addr;
+    }
+
+    NS_FATAL_ERROR("[GW] no routable IPv4 address on physical GW node (gwId=" << gwId << ")");
+    return Ipv4Address();
+}
+
 static void
 ActivateUtEndpointProbe(Ptr<SimulationHelper> simHelper,
                         uint32_t              utId,
@@ -1912,6 +2062,7 @@ ActivateUtEndpointProbe(Ptr<SimulationHelper> simHelper,
 static void
 ActivateGwEndpointProbe(Ptr<SimulationHelper> simHelper,
                         uint32_t              gwId,
+                        const std::string&    gwMode,
                         bool                  installAppSink,
                         double                stopSec)
 {
@@ -1931,6 +2082,23 @@ ActivateGwEndpointProbe(Ptr<SimulationHelper> simHelper,
 
     if (!installAppSink)
     {
+        return;
+    }
+
+    if (gwMode == "physical")
+    {
+        if (!physicalGw)
+        {
+            if (g_endpointProbe.gw.reason.empty())
+            {
+                g_endpointProbe.gw.reason = "physical_gw_node_missing";
+            }
+            return;
+        }
+        InstallEndpointAppSinkAtAddress(physicalGw,
+                                        GetPhysicalGwRoutableIp(physicalGw, gwId),
+                                        g_endpointProbe.gw,
+                                        stopSec);
         return;
     }
 
@@ -1968,14 +2136,14 @@ InstallEndpointProbe(Ptr<SimulationHelper> simHelper,
 
     if (cfg.pathType == "gw2sat")
     {
-        ActivateGwEndpointProbe(simHelper, cfg.gwId, false, stopSec);
+        ActivateGwEndpointProbe(simHelper, cfg.gwId, cfg.gwMode, false, stopSec);
         ActivateSatEndpointNotApplicable("satellite_orbiter_only");
         return;
     }
 
     if (cfg.pathType == "sat2gw")
     {
-        ActivateGwEndpointProbe(simHelper, cfg.gwId, true, stopSec);
+        ActivateGwEndpointProbe(simHelper, cfg.gwId, cfg.gwMode, true, stopSec);
         return;
     }
 
@@ -1987,7 +2155,7 @@ InstallEndpointProbe(Ptr<SimulationHelper> simHelper,
 
     if (cfg.pathType == "gw2gw_e2e")
     {
-        ActivateGwEndpointProbe(simHelper, cfg.gwDst, true, stopSec);
+        ActivateGwEndpointProbe(simHelper, cfg.gwDst, cfg.gwMode, true, stopSec);
         return;
     }
 
@@ -2084,12 +2252,13 @@ InstallGwUtSegmentTrafficBase(Ptr<SimulationHelper> simHelper,
 static void
 InstallSat2SatBackgroundLoad(Ptr<SimulationHelper> simHelper,
                              double                simTimeSec,
-                             uint32_t              gwAnchorId)
+                             uint32_t              gwAnchorId,
+                             const std::string&    gwMode)
 {
     TrafficConfig bg;
     bg.enableFwd = true;
     bg.enableRtn = true;
-    bg.fwdIntervalMs = 30; 
+    bg.fwdIntervalMs = 30;
     bg.rtnIntervalMs = 30;
     bg.fwdPktBytes = 1500;
     bg.rtnPktBytes = 1500;
@@ -2097,10 +2266,44 @@ InstallSat2SatBackgroundLoad(Ptr<SimulationHelper> simHelper,
     bg.stopSec = simTimeSec - 1.0;
 
     std::cout << "[TRAFFIC][isl] install aggressive background load via GW="
-              << gwAnchorId << " <-> all UTs\n";
+              << gwAnchorId << " <-> all UTs"
+              << " gwMode=" << gwMode << "\n";
 
     InstallGwUtSegmentTrafficBase(simHelper, bg, simTimeSec,
-                                  GetGwUsers(gwAnchorId), GetUtUsers(), "isl");
+                                  GetGwTrafficNodes(gwAnchorId, gwMode), GetUtUsers(), "isl");
+}
+
+static void
+SendGw2GwTaggedPacket(Ptr<Socket> socket,
+                      Ipv4Address dstAddr,
+                      uint16_t    port,
+                      uint32_t    packetSize,
+                      Time        interval,
+                      Time        stopTime)
+{
+    if (!socket || Simulator::Now() > stopTime)
+    {
+        return;
+    }
+
+    Ptr<Packet> pkt = Create<Packet>(packetSize);
+    Gw2GwTxTimeTag txTag;
+    txTag.SetTxTime(Simulator::Now());
+    pkt->AddPacketTag(txTag);
+    socket->SendTo(pkt, 0, InetSocketAddress(dstAddr, port));
+
+    Time nextTx = Simulator::Now() + interval;
+    if (nextTx <= stopTime)
+    {
+        Simulator::Schedule(interval,
+                            &SendGw2GwTaggedPacket,
+                            socket,
+                            dstAddr,
+                            port,
+                            packetSize,
+                            interval,
+                            stopTime);
+    }
 }
 
 static void
@@ -2108,19 +2311,43 @@ InstallGw2GwApplicationTraffic(Ptr<SimulationHelper> simHelper,
                                uint32_t              gwSrc,
                                uint32_t              gwDst,
                                double                startSec,
-                               double                stopSec)
+                               double                stopSec,
+                               const std::string&    gwMode)
 {
     auto topo = Singleton<SatTopology>::Get();
     auto satHelper = simHelper->GetSatelliteHelper();
 
-    Ptr<Node> srcUser = topo->GetGwUserNode(gwSrc);
-    Ptr<Node> dstUser = topo->GetGwUserNode(gwDst);
+    Ptr<Node> srcNode;
+    Ptr<Node> dstNode;
+    Ipv4Address srcAddr;
+    Ipv4Address dstAddr;
 
-    NS_ABORT_MSG_IF(!srcUser, "[GW2GW_APP] GetGwUserNode(" << gwSrc << ") returned null");
-    NS_ABORT_MSG_IF(!dstUser, "[GW2GW_APP] GetGwUserNode(" << gwDst << ") returned null");
+    std::cout << "[GW2GW_APP] gwMode=" << gwMode << "\n";
 
-    Ipv4Address srcAddr = satHelper->GetUserAddress(srcUser);
-    Ipv4Address dstAddr = satHelper->GetUserAddress(dstUser);
+    if (gwMode == "physical")
+    {
+        srcNode = GetPhysicalGwNodeOrNull(gwSrc);
+        dstNode = GetPhysicalGwNodeOrNull(gwDst);
+        NS_ABORT_MSG_IF(!srcNode,
+                        "[GW2GW_APP] physical GW node for gwSrc=" << gwSrc
+                        << " not found; rerun with --gwMode=user or enable a scenario with this physical GW");
+        NS_ABORT_MSG_IF(!dstNode,
+                        "[GW2GW_APP] physical GW node for gwDst=" << gwDst
+                        << " not found; rerun with --gwMode=user or enable a scenario with this physical GW");
+        srcAddr = GetPhysicalGwRoutableIp(srcNode, gwSrc);
+        dstAddr = GetPhysicalGwRoutableIp(dstNode, gwDst);
+    }
+    else
+    {
+        srcNode = topo->GetGwUserNode(gwSrc);
+        dstNode = topo->GetGwUserNode(gwDst);
+
+        NS_ABORT_MSG_IF(!srcNode, "[GW2GW_APP] GetGwUserNode(" << gwSrc << ") returned null");
+        NS_ABORT_MSG_IF(!dstNode, "[GW2GW_APP] GetGwUserNode(" << gwDst << ") returned null");
+
+        srcAddr = satHelper->GetUserAddress(srcNode);
+        dstAddr = satHelper->GetUserAddress(dstNode);
+    }
 
     g_gw2gwDelivery = {};
     g_gw2gwDelivery.installed = true;
@@ -2129,16 +2356,18 @@ InstallGw2GwApplicationTraffic(Ptr<SimulationHelper> simHelper,
     g_gw2gwDelivery.srcAddr = srcAddr;
     g_gw2gwDelivery.dstAddr = dstAddr;
 
-    std::cout << "[GW2GW_APP] GW" << gwSrc << "_user=" << srcAddr
-              << " -> GW" << gwDst << "_user=" << dstAddr
+    std::cout << "[GW2GW_APP] GW" << gwSrc << "=" << srcAddr
+              << " -> GW" << gwDst << "=" << dstAddr
               << " start=" << startSec << "s"
               << " stop=" << stopSec << "s\n";
 
     const uint16_t port = 9001;
+    const uint32_t pktSizeBytes = 512;
+    const Time     txInterval = MilliSeconds(100);
 
     PacketSinkHelper sink("ns3::UdpSocketFactory",
                           InetSocketAddress(dstAddr, port));
-    ApplicationContainer sinkApps = sink.Install(dstUser);
+    ApplicationContainer sinkApps = sink.Install(dstNode);
     g_gw2gwDelivery.traceConnected =
         sinkApps.Get(0)->TraceConnectWithoutContext("Rx", MakeCallback(&Gw2GwAppRxCb));
     sinkApps.Start(Seconds(0.0));
@@ -2146,26 +2375,39 @@ InstallGw2GwApplicationTraffic(Ptr<SimulationHelper> simHelper,
 
     std::cout << "[GW2GW_OBS][PACKET] PacketSink::Rx trace "
               << (g_gw2gwDelivery.traceConnected ? "connected" : "NOT_CONNECTED")
-              << " on GW" << gwDst << "_user\n";
+              << " on GW" << gwDst << " (" << gwMode << ")\n";
 
-    OnOffHelper sender("ns3::UdpSocketFactory",
-                       InetSocketAddress(dstAddr, port));
-    sender.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
-    sender.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
-    sender.SetAttribute("DataRate", DataRateValue(DataRate("40960bps")));
-    sender.SetAttribute("PacketSize", UintegerValue(512));
+    Ptr<Socket> txSocket =
+        Socket::CreateSocket(srcNode, UdpSocketFactory::GetTypeId());
+    NS_ABORT_MSG_IF(!txSocket, "[GW2GW_APP] failed to create UDP socket");
+    txSocket->SetAllowBroadcast(false);
 
-    ApplicationContainer senderApps = sender.Install(srcUser);
-    senderApps.Start(Seconds(startSec));
-    senderApps.Stop(Seconds(stopSec));
+    std::cout << "[GW2GW_APP] tagged UDP sender"
+              << " interval=" << txInterval.GetMilliSeconds() << "ms"
+              << " pktSize=" << pktSizeBytes << "B"
+              << " rate~" << (pktSizeBytes * 8.0 / txInterval.GetSeconds() / 1000.0)
+              << " kbps\n";
+
+    Simulator::Schedule(Seconds(startSec),
+                        &SendGw2GwTaggedPacket,
+                        txSocket,
+                        dstAddr,
+                        port,
+                        pktSizeBytes,
+                        txInterval,
+                        Seconds(stopSec));
 
     Simulator::Schedule(
         Seconds(stopSec + 1.0),
-        [sinkApps, gwSrc, gwDst, srcAddr, dstAddr]()
+        [sinkApps, gwSrc, gwDst, srcAddr, dstAddr, pktSizeBytes]()
         {
             auto sinkApp = DynamicCast<PacketSink>(sinkApps.Get(0));
             uint64_t rxBytes = sinkApp ? sinkApp->GetTotalRx() : 0;
-            uint64_t estPkts = (rxBytes > 0) ? (rxBytes / 512) : 0;
+            uint64_t estPkts = (rxBytes > 0) ? (rxBytes / pktSizeBytes) : 0;
+            double avgDelayMs = (g_gw2gwDelivery.delaySamples > 0)
+                                    ? (g_gw2gwDelivery.sumDelayMs /
+                                       static_cast<double>(g_gw2gwDelivery.delaySamples))
+                                    : 0.0;
 
             g_gw2gwDelivery.reported = true;
             g_gw2gwDelivery.rxBytes = rxBytes;
@@ -2179,7 +2421,15 @@ InstallGw2GwApplicationTraffic(Ptr<SimulationHelper> simHelper,
                       << (g_gw2gwDelivery.traceConnected ? "yes" : "no")
                       << " traceRxPkts=" << g_gw2gwDelivery.traceRxPkts
                       << " traceRxBytes=" << g_gw2gwDelivery.traceRxBytes
-                      << "\n";
+                      << " delaySamples=" << g_gw2gwDelivery.delaySamples
+                      << " avgOneWayDelayMs=" << std::fixed << std::setprecision(3)
+                      << avgDelayMs;
+            if (g_gw2gwDelivery.delaySamples > 0)
+            {
+                std::cout << " minOneWayDelayMs=" << g_gw2gwDelivery.minDelayMs
+                          << " maxOneWayDelayMs=" << g_gw2gwDelivery.maxDelayMs;
+            }
+            std::cout << "\n";
 
             if (rxBytes == 0)
             {
@@ -2210,7 +2460,8 @@ InstallFeederlinkTraffic(Ptr<SimulationHelper>   simHelper,
                                        cfg.gwSrc,
                                        cfg.gwDst,
                                        cfg.feederlink.traffic.startSec,
-                                       ResolveTrafficStopSec(cfg.feederlink.traffic, cfg.simTimeSec));
+                                       ResolveTrafficStopSec(cfg.feederlink.traffic, cfg.simTimeSec),
+                                       cfg.gwMode);
         return true;
     }
 
@@ -2223,7 +2474,7 @@ InstallFeederlinkTraffic(Ptr<SimulationHelper>   simHelper,
         InstallGwUtSegmentTrafficBase(simHelper,
                                       cfg.feederlink.traffic,
                                       cfg.simTimeSec,
-                                      GetGwUsers(plan.edgeGatewayId),
+                                      GetGwTrafficNodes(plan.edgeGatewayId, cfg.gwMode),
                                       utUsers,
                                       "feederlink");
         return true;
@@ -2246,7 +2497,7 @@ InstallIslTraffic(Ptr<SimulationHelper>   simHelper,
 
     if (plan.trafficKind == TrafficKind::ISL_BACKGROUND)
     {
-        InstallSat2SatBackgroundLoad(simHelper, cfg.simTimeSec, cfg.gwId);
+        InstallSat2SatBackgroundLoad(simHelper, cfg.simTimeSec, cfg.gwId, cfg.gwMode);
         return;
     }
 
@@ -2273,7 +2524,7 @@ InstallServicelinkTraffic(Ptr<SimulationHelper>   simHelper,
         InstallGwUtSegmentTrafficBase(simHelper,
                                       cfg.servicelink.traffic,
                                       cfg.simTimeSec,
-                                      GetGwUsers(plan.edgeGatewayId),
+                                      GetGwTrafficNodes(plan.edgeGatewayId, cfg.gwMode),
                                       utUsers,
                                       "servicelink");
         return true;
@@ -2889,6 +3140,18 @@ PrintE2EFinalVerdict(Ptr<IslRoutingManager> routingMgr,
                               std::string(g_gw2gwDelivery.traceConnected ? "1" : "0") +
                               " traceRxPkts=" + std::to_string(g_gw2gwDelivery.traceRxPkts) +
                               " traceRxBytes=" + std::to_string(g_gw2gwDelivery.traceRxBytes) +
+                              " delaySamples=" + std::to_string(g_gw2gwDelivery.delaySamples) +
+                              " avgOneWayDelayMs=" +
+                              (g_gw2gwDelivery.delaySamples > 0
+                                   ? [&]()
+                                     {
+                                         std::ostringstream oss;
+                                         oss << std::fixed << std::setprecision(3)
+                                             << (g_gw2gwDelivery.sumDelayMs /
+                                                 static_cast<double>(g_gw2gwDelivery.delaySamples));
+                                         return oss.str();
+                                     }()
+                                   : std::string("N/A")) +
                               " reported=" + std::string(g_gw2gwDelivery.reported ? "1" : "0") +
                               " sinkTotalRxBytes=" + std::to_string(g_gw2gwDelivery.rxBytes) +
                               " sinkEstPkts=" + std::to_string(g_gw2gwDelivery.estPkts));
@@ -2998,6 +3261,314 @@ PrintE2EFinalVerdict(Ptr<IslRoutingManager> routingMgr,
     }
 }
 
+struct DelayMatrixRow
+{
+    std::string pathType;
+    std::string status;
+    std::string reason;
+    std::string regenerationMode;
+    std::string gwMode;
+    std::string srcEndpoint;
+    std::string dstEndpoint;
+    std::string srcIp;
+    std::string dstIp;
+    uint32_t    slot{0};
+    double      slotTimeSec{0.0};
+    std::string routeSatPath;
+    std::string feederKeys;
+    std::string serviceKeys;
+    std::string islKeys;
+    uint64_t    rxPkts{0};
+    uint64_t    rxBytes{0};
+    uint64_t    dropPkts{0};
+    uint64_t    appDelaySamples{0};
+    double      appAvgDelayMs{0.0};
+    double      appMinDelayMs{0.0};
+    double      appMaxDelayMs{0.0};
+    uint64_t    feederDelaySamples{0};
+    double      feederAvgDelayMs{0.0};
+    uint64_t    serviceDelaySamples{0};
+    double      serviceAvgDelayMs{0.0};
+    uint64_t    islRxPkts{0};
+    uint64_t    islDropPkts{0};
+};
+
+static std::string
+NodeLabel(const std::string& label, Ptr<Node> node)
+{
+    std::ostringstream oss;
+    oss << label << "=";
+    if (node)
+    {
+        oss << "node" << node->GetId();
+    }
+    else
+    {
+        oss << "missing";
+    }
+    return oss.str();
+}
+
+static Ptr<Node>
+GetGwEndpointNode(uint32_t gwId, const std::string& gwMode)
+{
+    if (gwMode == "physical")
+    {
+        return GetPhysicalGwNodeOrNull(gwId);
+    }
+    return Singleton<SatTopology>::Get()->GetGwUserNode(gwId);
+}
+
+static std::string
+GetGwEndpointIpString(Ptr<SimulationHelper> simHelper,
+                      uint32_t              gwId,
+                      const std::string&    gwMode)
+{
+    Ptr<Node> node = GetGwEndpointNode(gwId, gwMode);
+    if (!node)
+    {
+        return "";
+    }
+    if (gwMode == "physical")
+    {
+        return Ipv4ToString(GetPhysicalGwRoutableIp(node, gwId));
+    }
+    return Ipv4ToString(simHelper->GetSatelliteHelper()->GetUserAddress(node));
+}
+
+static uint64_t
+SumDropsInScope(const std::string& linkType, const ObsScope& scope)
+{
+    const std::map<std::string, SegLinkStats>* statsMap = GetObsStatsMap(linkType);
+    uint64_t total{0};
+    if (!statsMap)
+    {
+        return total;
+    }
+    for (const auto& kv : *statsMap)
+    {
+        if (IsObsKeyInScope(scope, linkType, kv.first))
+        {
+            total += kv.second.dropPkts;
+        }
+    }
+    return total;
+}
+
+static DelayMatrixRow
+BuildMeasuredDelayRow(Ptr<SimulationHelper> simHelper,
+                      Ptr<IslRoutingManager> routingMgr,
+                      const E2EConfig&       cfg,
+                      uint32_t               slot)
+{
+    DelayMatrixRow row;
+    row.pathType = cfg.pathType;
+    row.status = "measured";
+    row.regenerationMode = cfg.regenerationMode;
+    row.gwMode = cfg.gwMode;
+    row.slot = slot;
+    row.slotTimeSec = slot * routingMgr->GetTimeSlotInterval();
+    row.feederKeys = SetToString(g_obsVerdictScope.feederKeys);
+    row.serviceKeys = SetToString(g_obsVerdictScope.serviceKeys);
+    row.islKeys = SetToString(g_obsVerdictScope.islKeys);
+
+    if (cfg.pathType == "gw2gw_e2e")
+    {
+        Ptr<Node> src = GetGwEndpointNode(cfg.gwSrc, cfg.gwMode);
+        Ptr<Node> dst = GetGwEndpointNode(cfg.gwDst, cfg.gwMode);
+        row.srcEndpoint = NodeLabel("gw" + std::to_string(cfg.gwSrc), src);
+        row.dstEndpoint = NodeLabel("gw" + std::to_string(cfg.gwDst), dst);
+        row.srcIp = Ipv4ToString(g_gw2gwDelivery.srcAddr);
+        row.dstIp = Ipv4ToString(g_gw2gwDelivery.dstAddr);
+        GwToGwRoute route = routingMgr->GetGwRoute(cfg.gwSrc, cfg.gwDst, slot);
+        row.routeSatPath = route.valid ? SatPathToString(route.satPath) : "invalid_route";
+        row.rxPkts = g_gw2gwDelivery.traceRxPkts;
+        row.rxBytes = g_gw2gwDelivery.traceRxBytes;
+        row.appDelaySamples = g_gw2gwDelivery.delaySamples;
+        if (row.appDelaySamples > 0)
+        {
+            row.appAvgDelayMs =
+                g_gw2gwDelivery.sumDelayMs / static_cast<double>(g_gw2gwDelivery.delaySamples);
+            row.appMinDelayMs = g_gw2gwDelivery.minDelayMs;
+            row.appMaxDelayMs = g_gw2gwDelivery.maxDelayMs;
+        }
+    }
+    else if (cfg.pathType == "gw2ut_e2e")
+    {
+        Ptr<Node> src = GetGwEndpointNode(cfg.gwId, cfg.gwMode);
+        Ptr<Node> utUser = GetUtUserNodeOrNull(cfg.trafficUtUserId);
+        row.srcEndpoint = NodeLabel("gw" + std::to_string(cfg.gwId), src);
+        row.dstEndpoint = NodeLabel("utUser" + std::to_string(cfg.trafficUtUserId), utUser);
+        row.srcIp = GetGwEndpointIpString(simHelper, cfg.gwId, cfg.gwMode);
+        row.dstIp = utUser ? Ipv4ToString(simHelper->GetSatelliteHelper()->GetUserAddress(utUser)) : "";
+        GwToUtRoute route = routingMgr->GetGwUtRoute(cfg.gwId, cfg.utId, slot);
+        row.routeSatPath = route.valid ? SatPathToString(route.satPath) : "invalid_route";
+        row.rxPkts = SumScopedRxPktsInScope("service", g_obsVerdictScope);
+        row.rxBytes = 0;
+    }
+    else if (cfg.pathType == "sat2sat")
+    {
+        NodeContainer sats = Singleton<SatTopology>::Get()->GetOrbiterNodes();
+        row.srcEndpoint = NodeLabel("sat" + std::to_string(cfg.satSrc),
+                                    cfg.satSrc < sats.GetN() ? sats.Get(cfg.satSrc) : nullptr);
+        row.dstEndpoint = NodeLabel("sat" + std::to_string(cfg.satDst),
+                                    cfg.satDst < sats.GetN() ? sats.Get(cfg.satDst) : nullptr);
+        row.routeSatPath = SatPathToString(routingMgr->TracePath(cfg.satSrc, cfg.satDst, slot));
+        row.rxPkts = SumScopedRxPktsInScope("isl", g_obsVerdictScope);
+    }
+    else if (cfg.pathType == "sat2ut")
+    {
+        Ptr<Node> utUser = GetUtUserNodeOrNull(cfg.trafficUtUserId);
+        row.srcEndpoint = "sat=route_serving";
+        row.dstEndpoint = NodeLabel("utUser" + std::to_string(cfg.trafficUtUserId), utUser);
+        row.dstIp = utUser ? Ipv4ToString(simHelper->GetSatelliteHelper()->GetUserAddress(utUser)) : "";
+        GwToUtRoute route = routingMgr->GetGwUtRoute(cfg.gwId, cfg.utId, slot);
+        row.routeSatPath = route.valid ? SatPathToString(route.satPath) : "invalid_route";
+        row.rxPkts = SumScopedRxPktsInScope("service", g_obsVerdictScope);
+    }
+    else if (cfg.pathType == "gw2sat" || cfg.pathType == "sat2gw")
+    {
+        Ptr<Node> gw = GetGwEndpointNode(cfg.gwId, cfg.gwMode);
+        row.srcEndpoint = (cfg.pathType == "gw2sat")
+                              ? NodeLabel("gw" + std::to_string(cfg.gwId), gw)
+                              : "sat=visible";
+        row.dstEndpoint = (cfg.pathType == "sat2gw")
+                              ? NodeLabel("gw" + std::to_string(cfg.gwId), gw)
+                              : "sat=visible";
+        row.srcIp = (cfg.pathType == "gw2sat") ? GetGwEndpointIpString(simHelper, cfg.gwId, cfg.gwMode) : "";
+        row.dstIp = (cfg.pathType == "sat2gw") ? GetGwEndpointIpString(simHelper, cfg.gwId, cfg.gwMode) : "";
+        row.routeSatPath = SetToString(routingMgr->GetGwVisibleSats(cfg.gwId, slot));
+        row.rxPkts = SumScopedRxPktsInScope("feeder", g_obsVerdictScope);
+    }
+
+    row.dropPkts = SumDropsInScope("feeder", g_obsVerdictScope) +
+                   SumDropsInScope("service", g_obsVerdictScope) +
+                   SumDropsInScope("isl", g_obsVerdictScope);
+    row.feederDelaySamples = CountScopedDelaySamplesInScope("feeder", g_obsVerdictScope);
+    row.feederAvgDelayMs = AvgScopedDelayMsInScope("feeder", g_obsVerdictScope);
+    row.serviceDelaySamples = CountScopedDelaySamplesInScope("service", g_obsVerdictScope);
+    row.serviceAvgDelayMs = AvgScopedDelayMsInScope("service", g_obsVerdictScope);
+    row.islRxPkts = SumScopedRxPktsInScope("isl", g_obsVerdictScope);
+    row.islDropPkts = SumDropsInScope("isl", g_obsVerdictScope);
+    return row;
+}
+
+static void
+WriteDelayMatrix(const std::string&          path,
+                 const std::vector<DelayMatrixRow>& rows)
+{
+    std::ofstream out(path.c_str(), std::ios::out | std::ios::trunc);
+    if (!out.is_open())
+    {
+        std::cout << "[DELAY_MATRIX] WARNING: cannot open " << path << "\n";
+        return;
+    }
+
+    out << "path_type,status,reason,regeneration_mode,gw_mode,src_endpoint,dst_endpoint,"
+           "src_ip,dst_ip,slot,slot_time_s,route_sat_path,feeder_keys,service_keys,isl_keys,"
+           "rx_pkts,rx_bytes,drop_pkts,app_delay_samples,app_avg_delay_ms,app_min_delay_ms,"
+           "app_max_delay_ms,feeder_delay_samples,feeder_avg_delay_ms,service_delay_samples,"
+           "service_avg_delay_ms,isl_rx_pkts,isl_drop_pkts\n";
+    for (const auto& row : rows)
+    {
+        out << CsvEscape(row.pathType) << ","
+            << CsvEscape(row.status) << ","
+            << CsvEscape(row.reason) << ","
+            << CsvEscape(row.regenerationMode) << ","
+            << CsvEscape(row.gwMode) << ","
+            << CsvEscape(row.srcEndpoint) << ","
+            << CsvEscape(row.dstEndpoint) << ","
+            << CsvEscape(row.srcIp) << ","
+            << CsvEscape(row.dstIp) << ","
+            << row.slot << ","
+            << std::fixed << std::setprecision(3) << row.slotTimeSec << ","
+            << CsvEscape(row.routeSatPath) << ","
+            << CsvEscape(row.feederKeys) << ","
+            << CsvEscape(row.serviceKeys) << ","
+            << CsvEscape(row.islKeys) << ","
+            << row.rxPkts << ","
+            << row.rxBytes << ","
+            << row.dropPkts << ","
+            << row.appDelaySamples << ","
+            << row.appAvgDelayMs << ","
+            << row.appMinDelayMs << ","
+            << row.appMaxDelayMs << ","
+            << row.feederDelaySamples << ","
+            << row.feederAvgDelayMs << ","
+            << row.serviceDelaySamples << ","
+            << row.serviceAvgDelayMs << ","
+            << row.islRxPkts << ","
+            << row.islDropPkts << "\n";
+    }
+
+    std::cout << "\n=== Real Delay Matrix ===\n";
+    for (const auto& row : rows)
+    {
+        std::cout << row.pathType
+                  << " status=" << row.status
+                  << " rxPkts=" << row.rxPkts
+                  << " appDelaySamples=" << row.appDelaySamples
+                  << " appAvgDelayMs=" << std::fixed << std::setprecision(3) << row.appAvgDelayMs
+                  << " feederAvgDelayMs=" << row.feederAvgDelayMs
+                  << " serviceAvgDelayMs=" << row.serviceAvgDelayMs
+                  << " reason=" << row.reason << "\n";
+    }
+    std::cout << "CSV: " << path << "\n";
+    std::cout << "=========================\n\n";
+}
+
+static std::vector<DelayMatrixRow>
+BuildDelayMatrixRows(Ptr<SimulationHelper> simHelper,
+                     Ptr<IslRoutingManager> routingMgr,
+                     const E2EConfig&       cfg,
+                     bool                   delayMatrix)
+{
+    std::vector<DelayMatrixRow> rows;
+    rows.push_back(BuildMeasuredDelayRow(simHelper, routingMgr, cfg, 0));
+
+    if (!delayMatrix)
+    {
+        return rows;
+    }
+
+    const std::vector<std::string> allPaths = {
+        "gw2gw_e2e", "gw2ut_e2e", "sat2ut", "sat2gw", "gw2sat", "sat2sat"};
+    for (const auto& pathType : allPaths)
+    {
+        if (pathType == cfg.pathType)
+        {
+            continue;
+        }
+        DelayMatrixRow row;
+        row.pathType = pathType;
+        row.status = "not_run";
+        row.reason = "not_run_in_current_single_path_simulation";
+        row.regenerationMode = cfg.regenerationMode;
+        row.gwMode = cfg.gwMode;
+        rows.push_back(row);
+    }
+    return rows;
+}
+
+static SatEnums::RegenerationMode_t
+ParseRegenerationMode(const std::string& mode)
+{
+    if (mode == "network")
+    {
+        return SatEnums::REGENERATION_NETWORK;
+    }
+    if (mode == "phy")
+    {
+        return SatEnums::REGENERATION_PHY;
+    }
+    if (mode == "transparent")
+    {
+        return SatEnums::TRANSPARENT;
+    }
+
+    NS_ABORT_MSG("Unsupported regenerationMode=" << mode);
+}
+
 // === Routing / Case Execution ===============================================
 
 static void
@@ -3048,10 +3619,6 @@ ConfigureRoutingCase(Ptr<IslRoutingManager> routingMgr,
 
         std::cout << "\n[CASE] sat2ut | utId=" << cfg.utId
                   << " | servicelink only | isl_cost=N/A\n";
-        if (cfg.gwUtVerbose)
-        {
-            PrintGwUtSelectionDiagnostics(routingMgr, cfg);
-        }
         return;
     }
 
@@ -3077,10 +3644,6 @@ ConfigureRoutingCase(Ptr<IslRoutingManager> routingMgr,
               << " utLonDeg=" << cfg.utLonDeg << "\n";
     routingMgr->PrecomputeGwUtRoutes();
     routingMgr->PrintGwUtRouteReport();
-    if (cfg.gwUtVerbose)
-    {
-        PrintGwUtSelectionDiagnostics(routingMgr, cfg);
-    }
 }
 
 } // namespace
@@ -3095,19 +3658,21 @@ main(int argc, char* argv[])
     const std::string islsFilePath =
         ns3BasePath + "/contrib/satellite/data/scenarios/" +
         scenarioName + "/positions/isls.txt";
+    const std::string rtnConfFilePath =
+        ns3BasePath + "/contrib/satellite/data/scenarios/" +
+        scenarioName + "/beams/rtnConf.txt";
 
     std::string pathType = "gw2gw_e2e";
     bool        rbdcVerbose = false;
     bool        obsDebug = false;
     bool        satStats = false;   // enable SNS3 native SatStatsHelperContainer output
     bool        endpointProbe = false;
-    bool        gwUtVerbose = false;
     uint32_t    endpointProbePort = 9100;
     double      islDropThreshPct = 1.0;
 
     double      simTime = 630.0;
     double      slotInterval = 60.0;
-    uint32_t    beamId = 1;
+    uint32_t    beamId = 72;
 
     double      islMaxDistKm = 5000.0;
     double      islRateMbps = 10.0;
@@ -3123,6 +3688,10 @@ main(int argc, char* argv[])
 
     uint32_t gwSrc = 0;
     uint32_t gwDst = 1;
+    std::string gwMode = "user";
+    std::string regenerationMode = "network";
+    bool        delayMatrix = false;
+    std::string delayCsvPath = "real_delay_matrix.csv";
 
     uint32_t    gwId = 0;
     uint32_t    utId = 0;
@@ -3151,9 +3720,6 @@ main(int argc, char* argv[])
     cmd.AddValue("endpointProbe",
                  "Enable endpoint delivery probe for all pathType values (0/1, default=0)",
                  endpointProbe);
-    cmd.AddValue("gwUtVerbose",
-                 "Print GW->UT route selection diagnostics (visible sats, selected pair, nearest pair) (0/1, default=0)",
-                 gwUtVerbose);
     cmd.AddValue("endpointProbePort",
                  "UDP port for diagnostic endpoint PacketSink probes (default=9100)",
                  endpointProbePort);
@@ -3161,7 +3727,9 @@ main(int argc, char* argv[])
 
     cmd.AddValue("simTime", "Simulation duration (s)", simTime);
     cmd.AddValue("slotInterval", "Routing slot interval (s)", slotInterval);
-    cmd.AddValue("beamId", "SNS3 beam ID to activate", beamId);
+    cmd.AddValue("beamId",
+                 "Primary SNS3 beam ID to activate; GW bootstrap beams are added automatically",
+                 beamId);
     cmd.AddValue("islMaxDistKm", "ISL activation distance threshold (km)", islMaxDistKm);
     cmd.AddValue("islRateMbps", "ISL link rate (Mbps)", islRateMbps);
     cmd.AddValue("emaAlpha", "EMA weight for load-cost smoothing", emaAlpha);
@@ -3174,6 +3742,18 @@ main(int argc, char* argv[])
 
     cmd.AddValue("gwSrc", "Source gateway preset ID for gw2gw_e2e", gwSrc);
     cmd.AddValue("gwDst", "Destination gateway preset ID for gw2gw_e2e", gwDst);
+    cmd.AddValue("gwMode",
+                 "GW endpoint mode: user (GW user node) | physical (physical GW feeder-side node)",
+                 gwMode);
+    cmd.AddValue("delayMatrix",
+                 "Write real delay matrix CSV summary (0/1). Current path is measured; other paths are listed as not_run.",
+                 delayMatrix);
+    cmd.AddValue("delayCsvPath",
+                 "Output CSV path for delay matrix/summary",
+                 delayCsvPath);
+    cmd.AddValue("regenerationMode",
+                 "Satellite regeneration mode: network | phy | transparent",
+                 regenerationMode);
 
     cmd.AddValue("gwId", "Gateway preset ID for gw2sat/sat2gw/gw2ut_e2e", gwId);
     cmd.AddValue("utId", "User terminal ID for sat2ut/gw2ut_e2e", utId);
@@ -3233,15 +3813,15 @@ main(int argc, char* argv[])
     E2EConfig e2eCfg;
     e2eCfg.pathType = pathType;
     e2eCfg.simTimeSec = simTime;
-    e2eCfg.slotIntervalSec = slotInterval;
     e2eCfg.satSrc = satSrc;
     e2eCfg.satDst = satDst;
     e2eCfg.gwSrc = gwSrc;
     e2eCfg.gwDst = gwDst;
     e2eCfg.gwId = gwId;
+    e2eCfg.gwMode = gwMode;
+    e2eCfg.regenerationMode = regenerationMode;
     e2eCfg.utId = utId;
     e2eCfg.trafficUtUserId = utId;
-    e2eCfg.gwUtVerbose = gwUtVerbose;
     e2eCfg.utLatDeg = utLatDeg;
     e2eCfg.utLonDeg = utLonDeg;
     e2eCfg.utName = utName;
@@ -3256,26 +3836,48 @@ main(int argc, char* argv[])
     const double   cooldownSec = slotInterval * cooldownRatio;
     const uint32_t numSlots =
         static_cast<uint32_t>(std::floor(simTime / slotInterval)) + 1;
+    // Only activate beams for the GWs actually used in this path (1 for single-GW paths,
+    // 2 for gw2gw). Activating all 5 GW beams multiplies satellite MAC/DAMA/RBDC events
+    // by ~5x and inflates wall time from ~12 min to ~3 hours.
+    const uint32_t bootstrapGwCount = GetPathTypeSpec(pathType).needsGwPair ? 2 : 1;
+    const std::set<uint32_t> enabledBeamSet =
+        BuildGatewayBootstrapBeamSet(rtnConfFilePath, bootstrapGwCount, beamId);
 
     std::cout << "[CFG] pathType=" << pathType
               << " obsFeederMode=" << ToString(e2ePlan.spec.obsFeederMode)
+              << " gwMode=" << gwMode
+              << " regenerationMode=" << regenerationMode
               << " simTime=" << simTime
               << " slotInterval=" << slotInterval
               << " numSlots=" << numSlots
               << " lastSlotTime=" << ((numSlots - 1) * slotInterval)
               << "\n";
+    std::cout << "[TOPO_BOOTSTRAP] enabledBeams={" << FormatBeamSet(enabledBeamSet)
+              << "} gatewayPresets=" << GetGatewayPresets().size()
+              << " primaryBeamId=" << beamId << "\n";
 
+    SatEnums::RegenerationMode_t parsedRegen = ParseRegenerationMode(regenerationMode);
+    if (regenerationMode == "transparent" &&
+        (pathType == "gw2gw_e2e" || pathType == "gw2ut_e2e" || pathType == "sat2sat"))
+    {
+        std::cout << "[REGEN] WARNING: transparent mode may not support constellation ISL/network "
+                  << "routing for pathType=" << pathType
+                  << "; unsupported cases will fail explicitly instead of being treated as validated.\n";
+    }
     Config::SetDefault("ns3::SatConf::ForwardLinkRegenerationMode",
-                       EnumValue(SatEnums::REGENERATION_NETWORK));
+                       EnumValue(parsedRegen));
     Config::SetDefault("ns3::SatConf::ReturnLinkRegenerationMode",
-                       EnumValue(SatEnums::REGENERATION_NETWORK));
+                       EnumValue(parsedRegen));
     Config::SetDefault("ns3::PointToPointIslHelper::IslDataRate",
                        DataRateValue(DataRate(static_cast<uint64_t>(islRateBps))));
     Config::SetDefault("ns3::SatSGP4MobilityModel::UpdatePositionEachRequest",
                        BooleanValue(false));
     Config::SetDefault("ns3::SatSGP4MobilityModel::UpdatePositionPeriod",
                        TimeValue(Seconds(slotInterval)));
-    Config::SetDefault("ns3::SatHelper::GwUsers", UintegerValue(3));
+    // Match GwUsers to bootstrapGwCount: only create user-side GW nodes for active GWs.
+    const uint32_t gwUsersNeeded = GetPathTypeSpec(pathType).needsGwPair ? 2 : 1;
+    Config::SetDefault("ns3::SatHelper::GwUsers",
+                       UintegerValue(gwUsersNeeded));
     Config::SetDefault("ns3::SatGwMac::SendNcrBroadcast", BooleanValue(false));
     Config::SetDefault("ns3::SatPhy::EnableStatisticsTags", BooleanValue(true));
     Config::SetDefault("ns3::SatNetDevice::EnableStatisticsTags", BooleanValue(true));
@@ -3288,7 +3890,7 @@ main(int argc, char* argv[])
         CreateObject<SimulationHelper>("test-iridium-3segment-e2e");
     simHelper->LoadScenario(scenarioName);
     simHelper->SetSimulationTime(Seconds(simTime));
-    simHelper->SetBeamSet(std::set<uint32_t>{beamId});
+    simHelper->SetBeamSet(enabledBeamSet);
     simHelper->SetUserCountPerUt(1);
     simHelper->CreateSatScenario();
 
@@ -3493,6 +4095,8 @@ main(int argc, char* argv[])
     PrintObsFinalSummary();
     PrintE2EFinalVerdict(routingMgr, e2eCfg, numSlots);
     PrintEndpointProbeSummary();
+    WriteDelayMatrix(delayCsvPath,
+                     BuildDelayMatrixRows(simHelper, routingMgr, e2eCfg, delayMatrix));
     routingMgr->PrintStats();
     routingMgr->PrintLoadStats();
     PrintIslDropStats(islDropThreshPct, islConnected);
@@ -3507,4 +4111,3 @@ main(int argc, char* argv[])
     Simulator::Destroy();
     return 0;
 }
-

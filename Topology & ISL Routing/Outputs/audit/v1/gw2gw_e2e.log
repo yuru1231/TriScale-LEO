@@ -1,0 +1,135 @@
+[CFG] pathType=gw2gw_e2e simTime=120 slotInterval=60 numSlots=3 lastSlotTime=120
+[ISL_DROP] trace connected: 264 ISL interfaces (132 unique links)
+[OBS] log opened: e2e_link_obs.csv
+[OBS] build=2026-04-17-fullobs-v1 feederSource=none
+[OBS] traces connected:  feeder=0  service=66  isl=264
+[OBS] snapshot interval=10s  dropAlertThresh=50%
+[RBDC] trace skipped (rbdcVerbose=0, use --rbdcVerbose=1 to enable)
+[CHKPT] 0s | Initialize: start
+[CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | InitOrbiterDevices: start
+[CHKPT] 0s | InitOrbiterDevices: done | satellites=66
+[CHKPT] 0s | Initialize: done | satellites=66 isls=132
+[CHKPT] 0s | PrecomputeAllTables: start | slots=3
+[CHKPT] PrecomputeAllTables: slot=0 t=0s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] 0s | PrecomputeAllTables: complete | wall=0ms
+
+[CASE] gw2gw_e2e | gwSrc=0 gwDst=1
+[CHKPT] 0s | PrecomputeGwRoutes: start | gws=2 pairs=1 slots=3
+[GwRouting] slot=0 t=0s GW0[JP-Tokyo]=2sats GW1[IN-NewDelhi]=2sats
+[GwRouting] slot=1 t=60s GW0[JP-Tokyo]=2sats GW1[IN-NewDelhi]=3sats
+[GwRouting] slot=2 t=120s GW0[JP-Tokyo]=2sats GW1[IN-NewDelhi]=3sats
+[CHKPT] 0s | PrecomputeGwRoutes: done | wall=0ms
+
+=== GW-to-GW Route Report (v6) ===
+
+  [JP-Tokyo → IN-NewDelhi]
+slot  time(s)   entry   ISL_path                                          exit    isl_cost(s)     
+--------------------------------------------------------------------------------------------------
+0     0         45      45->46->35->34->33                                33      0.047382        
+1     60        15      15->14->3->4                                      4       0.037122          <-- ROUTE CHANGED
+2     120       45      45->34->33                                        33      0.029282          <-- ROUTE CHANGED
+
+  [IN-NewDelhi → JP-Tokyo]
+slot  time(s)   entry   ISL_path                                          exit    isl_cost(s)     
+--------------------------------------------------------------------------------------------------
+0     0         33      33->34->35->46->45                                45      0.047382        
+1     60        4       4->3->14->15                                      15      0.037122          <-- ROUTE CHANGED
+2     120       33      33->34->45                                        45      0.029282          <-- ROUTE CHANGED
+
+===================================
+
+[GW2GW_OBS][ROUTING_ISL] scopedIslLinks=16 gwSrc=0 gwDst=1
+[OBS] scope: feeder=0 service=0 isl=16
+
+[E2E] pathType=gw2gw_e2e includesIsl=yes segments={feederlink=on, isl=on, servicelink=off} traffic=gw2gw_application
+[E2E][feederlink] enabled
+[GW2GW_APP] GW0_user=90.2.0.2 -> GW1_user=90.2.0.3 start=1s stop=119s
+[GW2GW_OBS][PACKET] PacketSink::Rx trace connected on GW1_user
+[E2E][isl] enabled
+[E2E][isl] routing/transit enabled without extra ISL-only load generator
+[E2E][servicelink] disabled
+[CHKPT] 0s | ScheduleRoutingUpdates: 3 events scheduled
+[CHKPT] 0s | ApplyRoutingTable: slot=0 t=0s | apply=0ms recompute=0ms recomputedSrc=0
+[CHKPT] 60s | ApplyRoutingTable: slot=1 HasSignificantChange=YES
+[CHKPT] 60s | RecomputeAffectedRoutes: slot=1 recomputed=3/66 wall=0ms
+[CHKPT] 60s | ApplyRoutingTable: slot=1 t=60s | apply=0ms recompute=0ms recomputedSrc=3
+[OBS][SCOPE_UPDATE] slot=1 feeder=0 service=0 isl=6
+
+[GW2GW_APP] === Packet-layer delivery summary ===
+  src: GW0 (90.2.0.2)
+  dst: GW1 (90.2.0.3)
+  received: 603648 bytes (~1179 pkts)
+[GW2GW_OBS][PACKET] traceConnected=yes traceRxPkts=1179 traceRxBytes=603648
+  [PASS] received>0, gateway-to-gateway path is active
+======================================
+
+[CHKPT] 120s | ApplyRoutingTable: slot=2 HasSignificantChange=YES
+[CHKPT] 120s | RecomputeAffectedRoutes: slot=2 recomputed=17/66 wall=0ms
+[CHKPT] 120s | ApplyRoutingTable: slot=2 t=120s | apply=0ms recompute=0ms recomputedSrc=17
+[OBS][SCOPE_UPDATE] slot=2 feeder=0 service=0 isl=4
+
+=== E2E Link Observability Final Summary ===
+link                    rx_pkts   rx_bytes     drop_pkts  drop_rate(%)  avg_delay(ms)
+------------------------------------------------------------------------------------
+isl:33-34               24022     24022        0          0.00          --
+isl:34-33               23972     23972        0          0.00          --
+isl:34-45               23972     23972        0          0.00          --
+isl:45-34               23972     23972        0          0.00          --
+[OBS][FEEDER-DIAG] total OrbiterRxFeeder callbacks (all sats, unscoped): 0
+------------------------------------------------------------------------------------
+Log: e2e_link_obs.csv
+=============================================
+
+
+=== E2E PathType Verdict ===
+pathType=gw2gw_e2e
+[LINK_LAYER] PASS | validSlots=3/3 gwSrc=0 gwDst=1 scopedIslLinks=4 scopedRxPkts=95938
+[PACKET_LAYER] PASS | appInstalled=1 traceConnected=1 traceRxPkts=1179 traceRxBytes=603648 reported=1 sinkTotalRxBytes=603648 sinkEstPkts=1179
+
+=== IslRoutingManager Stats ===
+slot  simTime   apply(ms)   recompute(ms)   recompSrc       changed     
+0     0.00      0           0               0               NO          
+1     60.00     0           0               3               YES         
+2     120.00    0           0               17              YES         
+==============================
+
+
+=== ISL Load Cost Summary (EMA queue delay) ===
+edgeIdx satA    satB    loadAB(ms)      loadBA(ms)      
+16      8       9       0.0000          0.2690          
+18      9       10      0.2690          0.0000          
+19      9       20      0.2690          0.0000          
+55      27      38      0.0000          0.3542          
+74      37      38      0.0000          0.3542          
+76      38      39      0.3542          0.0000          
+77      38      49      0.3542          0.0000          
+79      39      50      0.0000          0.6449          
+98      49      50      0.0000          0.6449          
+100     50      51      0.6449          0.0000          
+101     50      61      0.6449          0.0000          
+105     52      63      0.0000          0.5030          
+107     53      64      0.0000          0.2690          
+109     54      65      0.0000          0.8292          
+124     62      63      0.0000          0.5030          
+126     63      64      0.5030          0.2690          
+127     8       63      0.0000          0.5030          
+128     64      65      0.2690          0.8292          
+129     9       64      0.2690          0.2690          
+130     55      65      0.0000          0.8292          
+131     10      65      0.0000          0.8292          
+Loaded ISL links: 21 / 132 total ISL edges
+================================================
+
+
+=== ISL Packet Drop Rate Summary ===
+  (all ISLs: 0 drops)
+TOTAL: 6340563 pkts, 0 dropped | drop_rate=0.000% | success_rate=100.000%
+[PASS] overall ISL drop rate < 1.000%
+=====================================
+
+Total wall time: 568.985 s
+Event count:     0
