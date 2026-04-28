@@ -1,0 +1,130 @@
+```
+./ns3 run "test-iridium \
+  --mode=sat2sat \
+  --satSrc=0 \
+  --satDst=33 \
+  --simTime=120 \
+  --slotInterval=60 \
+  --beamId=1 \
+  --islMaxDistKm=5000 \
+  --islRateMbps=10 \
+  --emaAlpha=0.3 \
+  --changeThresh=0.1 \
+  --cooldownRatio=0.5 \
+  --elevMinDeg=5 \
+  --enableIsl=1 \
+  --obsLogPath=Logs/0415_sat2sat_refactor_recheck_link_obs.csv \
+  --obsInterval=10 \
+  --obsDropAlertPct=50" | tee "Topology & ISL Routing/Outputs/E2E-Refactor/sat2sat_s0s33_120_recheck.md"
+```
+```
+[CFG] pathType=sat2sat trafficProfile=none simTime=120 slotInterval=60 numSlots=3 lastSlotTime=120
+[ISL_DROP] trace connected: 264 ISL interfaces (132 unique links)
+[OBS] log opened: Logs/0415_sat2sat_refactor_recheck_link_obs.csv
+[OBS] traces connected:  feeder=66  service=66  isl=264
+[OBS] snapshot interval=10s  dropAlertThresh=50%
+[RBDC] trace skipped (rbdcVerbose=0, use --rbdcVerbose=1 to enable)
+
+[E2E] pathType=sat2sat includesIsl=yes segments={feederlink=off, isl=on, servicelink=off} traffic={sharedEdge=off, islBg=on, gw2gwBg=off, gw2gwDirect=off}
+[E2E][feederlink] disabled
+[E2E][isl] enabled
+[TRAFFIC][isl] install aggressive background load via GW=0 <-> all UTs
+[TRAFFIC][isl] gwId=0 gwUsers=1 utUsers=91 start=1s stop=119s
+[TRAFFIC][isl] FWD installed: interval=30ms pktSize=1500B rate~400 kbps/flow
+[TRAFFIC][isl] RTN installed: interval=30ms pktSize=1500B rate~400 kbps/flow
+[E2E][servicelink] disabled
+[CHKPT] 0s | Initialize: start
+[CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | InitOrbiterDevices: start
+[CHKPT] 0s | InitOrbiterDevices: done | satellites=66
+[CHKPT] 0s | Initialize: done | satellites=66 isls=132
+[CHKPT] 0s | PrecomputeAllTables: start | slots=3
+[CHKPT] PrecomputeAllTables: slot=0 t=0s | SAT0_routes=65 dijkstra=1ms total=1ms
+[CHKPT] PrecomputeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=1ms
+[CHKPT] PrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] 0s | PrecomputeAllTables: complete | wall=4ms
+
+[CASE] sat2sat | src=0 dst=33
+
+=== Route Report: Full Paths Across Slots ===
+time(s)   src   dst   full_path                                   route_cost    slot  
+--------------------------------------------------------------------------------------
+0         0     33    0->1->2->57->46->35->34->33                 0.078176      0     
+60.000000 0     33    0->1->2->57->46->35->34->33                 0.074919      1     
+120.0000000     33    0->1->2->57->46->35->34->33                 0.072055      2     
+
+==============================================
+[OBS] scope: feeder=0 service=0 isl=7
+[CHKPT] 0.000000s | ScheduleRoutingUpdates: 3 events scheduled
+[CHKPT] 0.000000s | ApplyRoutingTable: slot=0 t=0.000000s | apply=0ms recompute=0ms recomputedSrc=0
+[CHKPT] 60.000000s | ApplyRoutingTable: slot=1 HasSignificantChange=YES
+[CHKPT] 60.000000s | RecomputeAffectedRoutes: slot=1 recomputed=13/66 wall=0ms
+[CHKPT] 60.000000s | ApplyRoutingTable: slot=1 t=60.000000s | apply=0ms recompute=0ms recomputedSrc=13
+[CHKPT] 120.000000s | ApplyRoutingTable: slot=2 HasSignificantChange=YES
+[CHKPT] 120.000000s | RecomputeAffectedRoutes: slot=2 recomputed=18/66 wall=0ms
+[CHKPT] 120.000000s | ApplyRoutingTable: slot=2 t=120.000000s | apply=0ms recompute=0ms recomputedSrc=18
+
+=== E2E Link Observability Final Summary ===
+link                    rx_pkts   rx_bytes     drop_pkts  drop_rate(%)  avg_delay(ms)
+------------------------------------------------------------------------------------
+isl:0-1                 23974     23974        0          0.00          0.00
+isl:1-2                 29744     29744        0          0.00          0.00
+isl:2-57                23977     23977        0          0.00          0.00
+isl:34-33               23973     23973        0          0.00          0.00
+isl:35-34               23975     23975        0          0.00          0.00
+isl:46-35               23975     23975        0          0.00          0.00
+isl:57-46               23977     23977        0          0.00          0.00
+------------------------------------------------------------------------------------
+Log: Logs/0415_sat2sat_refactor_recheck_link_obs.csv
+=============================================
+
+
+=== IslRoutingManager Stats ===
+slot  simTime   apply(ms)   recompute(ms)   recompSrc       changed     
+0     0.00      0           0               0               NO          
+1     60.00     0           0               13              YES         
+2     120.00    0           0               18              YES         
+==============================
+
+
+=== ISL Load Cost Summary (EMA queue delay) ===
+edgeIdx satA    satB    loadAB(ms)      loadBA(ms)      
+13      6       17      0.0000          0.2102          
+17      8       19      0.0000          0.2690          
+28      14      15      10.3488         0.0000          
+32      16      17      0.0000          0.2102          
+34      17      18      0.2102          0.0000          
+35      17      28      0.2102          0.0000          
+36      18      19      0.0000          0.2690          
+38      19      20      0.2690          0.0000          
+39      19      30      0.2690          0.0000          
+87      43      54      0.0000          0.4517          
+105     52      63      0.0000          0.4733          
+106     53      54      0.0000          0.4517          
+107     53      64      0.0000          0.1883          
+108     44      54      0.0000          0.4517          
+109     54      65      0.4517          0.0000          
+124     62      63      0.0000          0.4733          
+126     63      64      0.4733          0.1883          
+127     8       63      0.0000          0.4733          
+128     64      65      0.1883          0.0000          
+129     9       64      0.0000          0.1883          
+Loaded ISL links: 20 / 132 total ISL edges
+================================================
+
+
+=== ISL Packet Drop Rate Summary ===
+ISL           total_pkts  dropped   drop_rate(%)  success_rate(%)
+--------------------------------------------------------------
+13-14         75763       3         0.0030        99.996
+14-15         153004      16583     10.838        89.162
+3-14          75851       43        0.0560        99.943
+--------------------------------------------------------------
+TOTAL: 6926118 pkts, 16629 dropped | drop_rate=0.240% | success_rate=99.760%
+[PASS] overall ISL drop rate < 1.000%
+=====================================
+
+Total wall time: 1301.115 s
+Event count:     0
+```
