@@ -1,562 +1,654 @@
-# SNS3 Beam Hopping 正式架構與實作綱要
+# Layer 2：Beam Hopping + User Scheduling + Power Allocation
 
 ## 1. 文件目的
 
-- 作為 SNS3 / ns-3 Beam Hopping 實作的主規格
-- 作為後續拆分 `.h/.cc` 模組與 example 的依據
-- 作為與既有簡化版 controller 區隔的正式版本定義
-- 作為後續研究紀錄、每日工作日誌與實驗設計的統一參考
-
----
-## 2.Rules
-### 2.1時間控制必須與標準對齊
-BH 時序以 DVB-S2X Type 1 Super-frame 為基準：
-
-- `T_sf = 26.5 ms`
-- `T_s = 26.5 ms`
-- `T_p = 503 ms`
-- `T_sw = 2 ms`
-- `T_prop = 5~20 ms`，預設 10 ms 
-
-### 2.2正式架構是多模組協作，不是單一 controller
-正式 BH 不是單一 class 就能完成，而是：
-
-- NCC 端做需求估算與排程
-- OBC 端接收 BHTP 並執行 slot 切換
-- GW 端做 queue cache 與 dequeue
-- Metrics 被動收集 KPI
-- Precoder 視 cluster 狀況執行 MMSE
-- Helper 作為統一安裝入口
+- Beam Hopping 時序管理
+- User Association / Scheduling
+- 功率分配Power Allocation
+- 雙尺度（Frame/slot）資源管理框架
+- 與 Layer 1 ISL Routing 的預留介面
 
 ---
 
-## 3. 系統總覽
+## 2. 系統圖
 
-## 3.1 高階資料流
+### 2.1 Time Axis（時間結構）
 
-```text
-Traffic demand / DaRequest
+
+
+**關鍵時間參數：**
+
+| 符號 | 定義 | 值 |
+|------|------|----|
+| T_slot | 單一時隙持續時間 | 26.5 ms |
+| T_frame | 幀持續時間 = 19 × T_slot | 503 ms |
+| T_sw | Beam switching time | 2 ms |
+| T_prop | GW → SAT 指令傳播延遲 | 10 ms |
+| M | 每幀時隙總數 | 19 |
+| K | 同一時隙最多同時活躍 beam 數 | 3 |
+
+---
+
+### 2.2 Coverage Position（波束覆蓋）
+
+**波束 Pattern 選擇指標 νsn（Beam Gain Ratio）：**
+
+νsn 衡量一個候選波束 pattern 對本 beam UT 的天線增益，相對於對鄰近 beam 所產生的干擾增益之比值。
+
+```
+νsn = Σ G(θ_k)  for k ∈ own UTs
+      ─────────────────────────────
+      Σ G(θ_j)  for j ∈ neighbor beam centers
+```
+
+- **分子**：此 pattern 在本 beam 所有 UT 方向上的增益總和（越高代表服務品質越好）
+- **分母**：此 pattern 在鄰近 beam 中心方向上的增益總和（越低代表干擾越小）
+```c++
+SatAntennaGainPattern::GetAntennaGain_lin(lat, lon)
+```
+**選擇原則：** 從 5 種候選波束寬度（1.0–3.0°）中，選 νsn 最大的 pattern。
+
+| 情境 | 選到的 pattern |
+|------|--------------|
+| UT 集中、高需求區 | 窄波束（高增益、小干擾半徑） |
+| UT 分散、邊緣覆蓋 | 寬波束（擴大覆蓋範圍） |
+
+> 此分配在模擬開始前執行一次（setup-time），模擬期間不動態切換。
+
+---
+
+### 2.3 System Architecture（系統架構）
+
+![structure](./Beam%20Hopping%20Controller/sat-bh-example-strc.png)
+---
+
+## 3. 雙尺度框架
+
+### 3.1 Frame Scale
+
+**週期**：503 ms 
+**決策者**：`SatResourceManager`（NCC / GW 端）
+
+| 決策 | 模組 | 輸入 | 輸出 |
+|------|------|------|------|
+| 波束模式 | SatBeamPatternSelector | 流量分佈、干擾矩陣 | patternId per beam |
+| 使用者關聯 | SatUserAssociator | UT 位置、C/N0、需求 | utId → beamId 映射 |
+
+決策頻率低，每Frame僅計算一次，輸出 `BeamConfig`（波束配置）供slot使用。
+
+---
+
+### 3.2 Timeslot Scale
+
+**週期**：每 26.5 ms 執行一次  
+**決策者**：`SatTimeslotController`（GW 端）
+
+| 決策 | 模組 | 輸入 | 輸出 |
+|------|------|------|------|
+| 功率分配 | SatPowerAllocator | 信道矩陣、需求 | powerDbw per beam |
+
+> **排程決策已合併至 Frame Scale**：UT 排程（WFQ / Priority / RR）由 `SatUserAssociator` 的 pre-planned schedule 負責，在每個 frame 決定哪個 UT 分配到哪個 beam，slot scale 不再需要獨立的 scheduler 模組。
+
+---
+
+### 3.3 資料流總覽
+
+```
+UT 回報 (channel state, demand, position)
     ↓
-SatBhScheduler (NCC)
-    ↓
-Generate SatBhTimePlan (BHTP)
-    ↓
-BHTP propagation delay
-    ↓
-SatBhObc (satellite side)
-    ↓
-Beam switching / slot activation
-    ↓
-SatGwCacheQueue dequeue on slot start
-    ↓
-Optional MMSE precoding for clustered beams
-    ↓
-Packets transmitted
-    ↓
-SatBhMetrics passively collect KPIs
+[Frame @ 503ms 起始]
+SatResourceManager
+    ├─ SatBeamPatternSelector → patternId[0..4] per beam
+    └─ SatUserAssociator     → utId→beamId assignment（含 WFQ/Priority/RR 排程邏輯）
+           ↓ BeamConfig（含 UT 分配與優先序）
+[Timeslot @ 每個 26.5ms 起始]
+SatTimeslotController
+    └─ SatPowerAllocator     → powerDbw per beam
+           ↓ SlotConfig
+[執行層（既有模組）]
+    ├─ SatBhObc              → beam switching 狀態機
+    ├─ SatGwCacheQueue       → 封包緩衝 / dequeue
+    ├─ SatBhPrecoder         → MMSE（cluster ≥ 2 beam）
+    └─ SatBhMetrics          → 被動 KPI 收集
 ```
 
 ---
 
-## 3.2 高階角色分工
+## 4. 系統參數
 
-| 模組 | 位置 | 核心職責 |
-|---|---|---|
-| SatBhTimePlan | 資料模型 | 儲存完整 BHTP 週期與 slot 配置 |
-| SatBhScheduler | NCC 側 | EM 估算、虛擬流量計算、調度、cluster 分組 |
-| SatBhObc | 衛星側 | 接收 BHTP、執行 beam switching 狀態機 |
-| SatGwCacheQueue | Gateway 側 | beam inactive 時暫存封包，slot 開始時排空 |
-| SatBhPrecoder | Gateway 側 | Cluster 條件成立時做 MMSE 預編碼 |
-| SatBhMetrics | 被動監測 | 收集 throughput / delay / JFI / drop rate 等 KPI |
-| SatBhHelper | 安裝入口 | 統一安裝所有模組並接好 trace/hook |
+### 4.1 硬體與通道參數
 
+| 參數 | 值 |來源|
+|------|----|------|
+| 衛星軌道高度 | 550 km |LAYER1|
+| 載波頻率 | 20 GHz | 
+| 系統頻寬 | 400 MHz | 
+| 總功率預算 | 43 dBm | 
+| 接收天線增益 | 35 dBi | 
+| 雜訊功率 | -126.47 dBW | 
+| 最低仰角 |  | 
 
----
+### 4.2 時間結構參數
 
-## 4. 物理與系統假設
+| 參數 | 符號 | 值 |
+|------|------|----|
+| Timeslot | T_slot | 26.5 ms |
+| Frame of slot | M | 19 |
+| Frame | T_frame | 503 ms |
+| Beam switching time | T_sw | 2 ms |
+| 指令傳播延遲 | T_prop | 10 ms |
+| 最多同時活躍 beam 數 | K |  |
 
-## 4.1 星座與頻段
+### 4.3 波束模式參數（5 種候選）
 
-最終規格採用：
+| Pattern Index | 3dB Beamwidth | 地面覆蓋半徑 | 增益（dBi） | 適用場景 |
+|:---:|:---:|:---:|:---:|------|
+| 0 | 1.0° | ~10 km | 43.89 | 極高需求 / hot-spot 核心 |
+| 1 | 1.5° | ~15 km | 41.39 | 高需求 |
+| 2 | 2.0° | ~20 km | 37.89 | 中等需求（預設） |
+| 3 | 2.5° | ~25 km | 35.01 | 低需求 |
+| 4 | 3.0° | ~30 km | 31.89 | 邊緣 / cold-spot |
 
-- Iridium Original: `6 × 11 = 66` 顆衛星
-- 軌道高度 `550 km`
-- 軌道傾角 `86.4°`
-- 每顆衛星有前後左右 4 條 ISL（介面已預留）
-- 頻段 Ka / Ku，下行中心頻率 `19.5 / 20 GHz`
-- 全頻率重用因子 = `1`（Full Frequency Reuse）
+### 4.4 QoS 與排程參數
 
----
-
-## 4.2 波束與半徑模型
-
-正式規格不是固定單一 beam size，而是支援三種動態波束半徑：
-
-| BeamSize | 半徑 | 增益 | 場景 |
-|---|---:|---:|---|
-| SMALL | 20 km | 43.89 dBi | 熱點、高 SINR、抗干擾 |
-| MIDDLE | 40 km | 37.89 dBi | 預設一般場景 |
-| LARGE | 80 km | 31.89 dBi | 非熱點稀疏覆蓋 |
-
-並且維持 SNS3 原生天線方向圖，只透過修改 3dB 波束寬度輸入完成，不修改原生天線模組。
-
----
-
-## 4.3 RF Chain 與同時活動 beam 數
-
-正式規格中：
-
-- `K = 2 ~ 4`
-- 建議初始值 `K = 3`
-- K 是單一 slot 同時活動 beam 數上限
-- K 的大小同時影響：
-  - 頻譜效率
-  - 硬體成本
-  - MMSE 預編碼複雜度 `O(K^3)` 
-
-**部分並行 multi-beam BH**。
+| 參數 | 值 |
+|------|----|
+| 最低速率需求 R_min | 100 kbps |
+| 最大容許延遲 T_max | 20 × T_slot = 530 ms |
+| 功率最佳化最大迭代次數 | 30 |
+| 波束選擇最大迭代次數 | 10 |
 
 ---
 
-## 5. 時間模型與 BHTP 結構
+## 5. 模組規格
 
-## 5.1 基本時間參數
+### 5.1 SatBeamPatternSelector
 
-| 符號 | 定義 | 建議值 |
-|---|---|---|
-| `T_sf` | DVB-S2X Super-frame | 26.5 ms |
-| `T_s` | BH Time Slot | 26.5 ms |
-| `T_p` | BHTP period | 503 ms |
-| `T_sw` | beam switching time | 2 ms |
-| `T_prop` | 指令下發延遲 | 10 ms（建議） |
+根據各 beam 的流量分佈，從 5 種候選 pattern 中選出最佳圖形。
 
+**選擇演算法**：
+1. 計算每個 candidate pattern 的 νsn 比率
+2. `νsn = Σ G(θ_k) for k in own_UTs / Σ G(θ_j) for j in neighbor_beams`
+3. 選擇 νsn 最大的 pattern（最大自身增益、最小鄰近干擾）
+4. 最多迭代 10 次
 
----
+**主要 Attributes（TypeId）：**
+- `CandidateBeamwidths` : DoubleVector, 預設 {1.0, 1.5, 2.0, 2.5, 3.0}
+- `MaxSelectionIterations` : uint32_t, 預設 10
 
-## 5.2 BHTP / Hopping Window 定義
+**主要 Methods：**
+- `SelectPattern(beamId, trafficDemand, channelInfo) → uint32_t patternIndex`
+- `ComputeNuRatio(beamId, patternIndex, utPositions) → double`
+- `GetPatternGain(patternIndex, angleRad) → double gainDb`
 
-一個 BHTP 週期由 `M` 個 time slots 構成，每個 slot 會指定：
+**執行時機：Setup-time 靜態分配（一次性）**
 
-- 本 slot 同時活動的 beam 集合
-- 各 beam 的 beam radius
-- 各 beam 的 MODCOD
-- 各 beam 的 cluster ID
-- slot 的開始時間與持續時間 
+`SatBeamPatternSelector` 在模擬開始前執行一次，為每個 beam 選好 patternId（0~4），
+於 `AttachChannels()` 時傳入對應的 `SatAntennaGainPattern` 物件。模擬期間不切換。
 
-M 的決定原則：
+**無法做 runtime 動態切換的原因（trace 確認）：**
+- `SatPhyTx::SetAntennaGainPattern()` 有 `NS_ASSERT(m_antennaGainPattern == nullptr)`，只允許初始化一次
+- `SatAntennaGainPattern::GetAntennaGain_lin()` 不是 virtual，Proxy Pattern 無法攔截
 
-1. 最小值：`M ≥ N / K`
-2. EM 輸出：依 `d_n` 決定實際所需 slot 數
-3. 上限：`T_p = M × T_s ≤ 1000 ms` 為建議上界 
+**動態控制改由其他模組負責：**
+- `SatUserAssociator`：每 503 ms 決定哪個 UT 關聯到哪個 beam
+- `SatPowerAllocator`：每 26.5 ms 決定每個 beam 的 TX 功率
+- `SatBhObc`：每 26.5 ms 決定哪個 beam 在哪個 slot 活躍
 
----
+**研究貢獻定位調整：**
+heterogeneous beam pattern 初始分配（窄/寬 beam 依需求分佈靜態設定）對 BH 系統效能的影響，而非 runtime beamwidth adaptation。
 
-## 5.3 SatBhTimePlan 資料模型
-
-`SatBhTimePlan` 是整個正式架構的資料核心。
-
-### 欄位
-- `planId`
-- `periodStart`
-- `periodEnd`
-- `slots : std::vector<BhSlotEntry>`
-
-### `BhSlotEntry`
-- `beamIds`
-- `startTime`
-- `duration`
-- `beamRadius`
-- `modcod`
-- `clusterIds` 
-
-
-- scheduler 決定某 beam 在一個 BHTP 內出現幾個 slots
-- OBC 按 slot 執行
-- metrics 最後統計某 beam 在一個週期內的總服務時間 `dwell_time_n`
+**SNS3 hook：**
+```cpp
+// setup 時（SatBhHelper::Install() 內）
+Ptr<SatAntennaGainPattern> pattern = m_patternContainer->GetAntennaGainPattern(beamId, patternId);
+orbiterHelper->AttachChannels(..., pattern, ...);
+```
 
 ---
 
-## 6. 核心演算法
+### 5.2 SatUserAssociator
 
-## 6.1 EM 需求估算
+**職責**：Frame-scale 決定哪些 UT 關聯到哪個 beam，同時負責 UT 間的排程邏輯（WFQ / Priority / RR）。`SatUserScheduler` 已合併至此模組。
 
-EM 在 NCC 側執行，用來估算下一個 BHTP 中各 beam 所需 slot 數 `d_n`。
+**設計原則（pre-planned schedule）：**
+- 在 frame N 計算 frame N+1 的 UT-beam 分配表（基於需求預測）
+- 排程策略決定哪個 UT 優先進入哪個 beam，等效於 WFQ / Priority / RR
+- 在 frame N 結尾呼叫 `MoveUtBetweenBeams()`，TIM-U 延遲在 frame N+1 生效
+- 延遲是設計的一部分，不是 race condition
 
-### 輸入
-- 觀測窗口 `W = 5` 個 BHTP 週期（建議）
-- 每個 beam / cell 在各 slot 的觀測流量 `x_n,t`
+**排程模式：**
 
-### 輸出
-- 各 beam 的需求 slot 數 `d_n`
-- 需滿足 `Σ d_n = M × K`
+| 模式 | 邏輯 | 效果 |
+|------|------|------|
+| Round-Robin | UT 輪流被分配到 beam | 公平，不考慮需求 |
+| Priority | 高優先 UT 優先佔用 beam slot | 保護關鍵服務 |
+| WFQ | 依 weight × 需求量決定 frame 分配份額 | 加權公平，主要模式 |
 
-### 觸發條件
-- 定期觸發：每個週期結束評估是否需要重跑
-- 提前觸發：連續兩個 slot 需求變化超過 `20%` 時立即重算 
+**主要 Attributes（TypeId）：**
+- `SchedulingMode` : enum {WFQ=0, PRIORITY=1, ROUND_ROBIN=2}, 預設 WFQ
+- `MaxReassignmentPerFrame` : uint32_t, 預設 5（限制每幀最多切換幾個 UT）
+- `MinRateKbps` : double, 預設 100（最低速率保護門檻）
+- `MaxDelayMs` : double, 預設 530（超過此延遲強制優先服務）
 
-### 公式
-- E-step:
-  `Q(λ | λ_old) = Σ_n Σ_t [ x_n,t × log(λ_n) - λ_n × T_s ]`
-- M-step:
-  `λ_n_new = (1/W×M) × Σ_t x_n,t`
-- 終止條件：
-  - `||λ_new - λ_old||₂ < ε`
-  - 或迭代次數達上限
-- 預設：
-  - `ε = 0.001`
-  - 最大迭代次數 = `50`
-### d_n 轉換
-`d_n = max(1, round( λ_n / Σ_n λ_n × M × K ))`  
-若總數不等於 `M × K`，需做全域校正。
+**主要 Methods：**
+- `Associate(utList, beamList, channelMap, demandMap) → AssignmentMap`
+- `ApplyAssociation(map)` — 觸發 UT beam reassignment（見下方 SNS3 hook 說明）
+- `ComputeWfqWeight(utId, bufferBytes, demandKbps) → double`
+- `EnforceDeadlineProtection(map)` — 超過 T_max 的 UT 強制升為最高優先
 
----
+**SNS3 hook 說明（trace 確認）：**
 
-## 6.2 虛擬流量
+採用**預先排程（pre-planned schedule）**設計，與 BHTP 概念一致：
 
-正式排程優先序不是只看 demand bytes，而是看 **虛擬流量**。
+```
+Frame N：SatUserAssociator 計算 UT 需求預測 → 產生 frame N+1 UT-beam 分配表
+         → 立即呼叫 MoveUtBetweenBeams() 觸發 TIM-U
+Frame N+1：TIM-U 延遲到期，UT 完成 beam 切換 → 分配表生效
+```
 
-### 單封包
-`A_{p,j} = L_{p,j} × α × (1 + 1 / T_{p,j})`
+呼叫方式：
+```cpp
+// 在 frame N 結尾（RunFrameOptimization() 內）
+ncc->MoveUtBetweenBeams(utId, srcSatId, srcBeamId, dstSatId, dstBeamId);
+```
 
-其中：
-- `L_{p,j}` = packet 長度
-- `α` = delay sensitivity factor
-- `T_{p,j}` = 剩餘 TTL（以 slot 計）
+TIM-U 的 1-frame 延遲是**設計的一部分**，不是 race condition。
+`SatUserAssociator` 產生的是 frame N+1 的預測分配，故在 frame N 觸發剛好對齊。
 
-### 小區總虛擬流量
-`A_j = Σ_p A_{p,j}`
-
-### α 建議值
-- `α = 2`：初始值，平衡 delay / throughput
-- `α = 3~4`：延遲改善明顯，吞吐量小幅下降
-- `α = 5`：延遲更低，但吞吐量開始顯著下降
-- `α > 5`：不建議一般場景使用 
+不使用 `TransferUtToBeam()` 直接呼叫（只搬 scheduler 狀態，狀態不一致）。
 
 ---
 
-## 6.3 波束調度策略
+### 5.3 SatResourceManager
 
-正式版本的 scheduler 包含兩段：
+**職責**：Frame-scale主控器，每 503 ms 執行一次，協調 UserAssociator + PowerAllocator。
 
-### 第一段：非熱點小區優先給大波束
-- `d_n` 低於第 25 百分位的小區視為非熱點
-- 以地理鄰近做 greedy clustering
-- 若單一大波束可覆蓋整個 cluster，則合併服務
-- 建議分配連續 slots，降低切換次數 
-### 第二段：熱點做動態半徑調整
-- 依虛擬流量 `A_n` 排序
-- 熱點密度高 -> 優先小波束
-- 中等密度 -> 中波束
-- 若 RF chain 不足或干擾限制不滿足 -> 回退到大波束
-- 每個 slot 最多填入 `K` 個 beams，需滿足干擾條件後才可提交至 BHTP
+**主要 Attributes（TypeId）：**
+- `FrameDuration` : Time, 預設 503ms
+- `EnablePatternSelection` : bool, 預設 true
+- `EnableUserAssociation` : bool, 預設 true
 
----
+**觸發機制：Self-scheduling loop**
+`SatResourceManager` 在 `DoInitialize()` 排第一次 `RunFrameOptimization()`；
+每次執行結束時用 `Simulator::Schedule(T_frame, ...)` 排下一次，避免 timer drift。
 
-## 6.4 干擾管理與 Cluster
-
-系統採用雙重干擾規避門檻：
-
-### 第一層：空間隔離
-- 中波束對應 `θ ≈ 3~5°`
-- 可用地面等效距離判定
-- 若 `D > 1.5 × (r_i + r_j)`，可視為近似噪聲受限，免做第二層判定
-### 第二層：影響因子
-`ω_{i,j} = P_interference(i→j) / P_signal(j)`  
-簡化後可寫為：
-`ω_{i,j} = G_i(θ_{i→j}) / G_j(0°)`
-
-若 `ω_{i,j} ≥ κ`，則兩 beam 必須併入同一 cluster 做 MMSE。  
-預設 `κ = 0.08`。
-### Cluster 分組
-- 初始化：每個 beam 先是單一 cluster
-- 比較：計算不同 cluster 間 beam 對的 `ω_ij`
-- 合併：若 `ω_ij ≥ κ` 則合併 cluster
-- 直到 cluster 不再變化為止 
+**主要 Methods：**
+- `RunFrameOptimization()` — 每 503 ms 自排程執行
+- `GetBeamConfig(beamId) → BeamConfig`
+- `SetDemandUpdateCallback(DemandUpdateCallback cb)`
+- `SetL1Interface(Ptr<SatL1RoutingInterface> iface)`
 
 ---
 
-## 6.5 MMSE 預編碼
 
-### 啟動條件
-只有當 cluster 內至少有 2 個活動 beam 時才啟動 MMSE。  
-若 cluster 僅 1 個 beam，則不做 MMSE。
 
-### 計算位置
-- GW 端
-- 不在衛星載荷上算
+### 5.4 SatPowerAllocator
 
-### 公式
-`W = H^H × (H × H^H + σ²_n × I)^(-1)`
+**職責**：Slot-scale在總功率預算 43 dBm 下最佳化每個 active beam 的功率分配。
 
-### 注意事項
-- CSI 以每個 slot 開始的信道快照近似
-- 建議以 Cholesky 分解做矩陣反運算
-- 若 `|C_k| > 3`，記錄 condition number 作為數值穩定性指標
+**最佳化目標**：最大化 sum-rate（或 min-SINR）subject to Σ p_k ≤ P_total
 
----
+**最佳化變數**：`p_k = m_eirpWoGainW` per beam（linear W，即 TxMaxPowerDbw 扣掉 output/pointing/OBO/antenna losses 後的值）
 
-## 7. 模組規格與實作責任
+SNS3 資料流：
+```
+TxMaxPowerDbw [dBW]
+  → (扣 losses) → m_eirpWoGainW [W] = p_k（最佳化變數）
+  → × G_tx（antenna gain）
+  → / FSL（free-space loss）
+  → × G_rx → m_rxPower_W [W]
+  → / (noise + interference) → SINR
+```
 
-## 7.1 SatBhScheduler
+**SINR 公式（linear domain）：**
+```
+SINR_k = (p_k × G_tx_k × G_rx_k / FSL_k) / (σ² + Σ_{j≠k} p_j × G_tx_j × G_rx_k / FSL_jk)
+```
 
-### 職責
-- 收需求
-- 跑 EM
-- 算虛擬流量
-- 做 beam scheduling
-- 做 cluster 分組
-- 輸出 `SatBhTimePlan`
+**迭代演算法（最多 30 次）：**
+1. 初始化：等功率分配 `p_k = P_total / K`（linear W）
+2. 計算各 beam SINR（公式見上）
+3. 根據 SINR 梯度更新 `p_k`（gradient ascent / water-filling）
+4. 投影回可行集：`Σ p_k ≤ P_total, p_k ≥ 0`
+5. 收斂條件：`||Δp||₂ < ε = 0.001`
 
-### 主要 attributes
-- `NumBeams = 19`
-- `MaxActiveBeams = 3`
-- `BhtpPeriod = 503ms`
-- `SlotDuration = 26.5ms`
-- `EmMaxIterations = 50`
-- `EmConvergenceEps = 0.001`
-- `DemandChangeThreshold = 0.20`
-- `AlphaDelaySensitivity = 2.0`
-- `InterferenceKappa = 0.08`
-- `NonHotspotPercentile = 0.25`
-- `PropagationDelay = 10ms` 
+**寫回 SNS3（ApplyPower）：**
+```cpp
+double txMaxDbw = SatUtils::WToDbW(p_k) + outputLossDb + pointingLossDb + oboLossDb + antLossDb;
+phy->SetTxMaxPowerDbw(txMaxDbw);
+phy->Initialize();  // 必須重算 m_eirpWoGainW
+```
 
-### 主要 methods
-- `OnDemandReceived(uint32_t beamId, uint32_t bytes)`
-- `RunSchedulingCycle(Time now)`
-- `ScheduleNextCycle()` 
+**主要 Attributes（TypeId）：**
+- `TotalPowerBudgetDbm` : double, 預設 43
+- `MaxIterations` : uint32_t, 預設 30
+- `NoisePowerDbw` : double, 預設 -126.47
+- `ConvergenceEpsilon` : double, 預設 0.001
 
----
+**主要 Methods：**
+- `Allocate(activeBeams, channelMap, demandMap) → PowerMap`
+- `ApplyPower(PowerMap)` — 呼叫 `SatOrbiterUserPhy::SetTxMaxPowerDbw()`
 
-## 7.2 SatBhObc
+**SNS3 hook（trace 確認）**：
 
-### 職責
-- 接收新 BHTP
-- 依 slot 切 beam
-- 管理狀態機
-- 發送 `BeamSwitch` callback
+```cpp
+Ptr<SatOrbiterUserPhy> phy = orbiterNetDevice->GetUserPhy(beamId);
+phy->SetTxMaxPowerDbw(powerDbw);  // 單位：dBW（不是 W）
+phy->Initialize();                 // 必須重呼叫，否則 m_eirpWoGainW 不更新
+```
 
-### 狀態
-- `IDLE`
-- `ACTIVE`
-- `SWITCHING`
-- `WAIT_PLAN`
+**單位契約（已驗證）：**
+- `SetTxMaxPowerDbw()` 接受 **dBW**（TX max power，含 output/pointing/OBO/antenna losses 前的值）
+- 內部計算 `eirpWoGainDbw = TxMaxPowerDbw − losses`，再轉成 linear W
+- `SatPowerAllocator` 的輸出必須是 TX max power 的 dBW，不是 EIRP
 
-### 狀態轉換摘要
-- `IDLE -> ACTIVE`：收到新 BHTP
-- `ACTIVE -> SWITCHING`：slot 結束
-- `SWITCHING -> ACTIVE`：`T_sw` 結束
-- `ACTIVE -> WAIT_PLAN`：BHTP 最後一個 slot 結束
-- `WAIT_PLAN -> ACTIVE`：收到新 BHTP 
+若 `SatPowerAllocator` 最佳化輸出是 EIRP dBW，需補回 losses：
+```cpp
+txMaxPowerDbw = eirpDbw - antGainDb + outputLossDb + pointingLossDb + oboLossDb + antLossDb;
+```
 
 ---
 
-## 7.3 SatGwCacheQueue
+### 5.5 SatBhTimePlan（擴充）
 
-### 職責
-- beam 不服務某小區時暫存封包
-- slot 開始時排空對應 beam queue
-- 供 metrics 計算 delay / drop rate
+在原有欄位基礎上新增（已實作，Phase B 完成）：
 
-### 關鍵規格
-- `MaxQueueSizePerBeam = 40 MB`
-- `DropPolicy = TAIL_DROP`
-- `RecordDropRate = true`
+**BhSlotEntry 擴充欄位：**
 
-### Queue 容量依據
-`Q_max = R_peak × T_p`  
-估算：
-- `R_peak ≈ 500 Mbps`
-- `T_p = 503 ms`
-- 理論值約 `31.4 MB`
-- 建議設 `≥ 40 MB` 以保留安全餘量 
+| 欄位 | 型別 | 填入者 | 說明 |
+|------|------|--------|------|
+| `beamPatterns` | `std::map<uint32_t, BeamRadiusType>` | SatBhScheduler / SatBhHelper | Per-beam antenna pattern；Key = beamId（1-indexed），取代原 slot-wide `beamRadius` |
+| `scheduledUtIds` | `std::vector<uint32_t>` | SatResourceManager | 此 slot 排程的 UT ID 列表（SatUserAssociator 輸出） |
+| `allocatedPowerDbw` | `std::map<uint32_t, double>` | SatPowerAllocator | Per-beam TX max power [dBW]（IWFA 輸出） |
 
----
+**BhSlotEntry 新增 helpers：**
+```cpp
+void SetBeamPattern(uint32_t beamId, BeamRadiusType pattern);
+BeamRadiusType GetBeamPattern(uint32_t beamId,
+                              BeamRadiusType defaultVal = MIDDLE) const;
+```
 
-## 7.4 SatBhMetrics
+**SatBhTimePlan 新增欄位：**
+- `frameId : uint32_t` — 幀計數器（由 SatResourceManager 設定，單調遞增）
 
-### 職責
-被動收集 KPI，不主動查詢原生內部狀態。
+> **設計注意**：`framePatternIndex` 未加入 SatBhTimePlan。同一 slot 內多個 beam 各自可用不同 pattern，故以 per-beam `beamPatterns` map 表達，不需 frame-wide 單一值。
 
-### 指標
-- throughput
-- avg_delay
-- max_delay
-- jain_fairness_index
-- dwell_time
-- slot_utilization
-- drop_rate
-- cluster_size_dist 
-
-### CSV 表頭
-`time_s, sat_id, beam_id, throughput_mbps, avg_delay_ms, max_delay_ms, dwell_time_ms, slot_util_pct, drop_rate_pct, jain_fairness_index`
----
-
-## 7.5 SatBhHelper
-
-### 職責
-- 統一安裝所有新增模組
-- 完成 AggregateObject 附掛
-- 完成 trace 連線
-- 提供 feature flag 與實驗控制介面
-
-### 主要 API
-- `Install(Ptr<SatHelper> satHelper)`
-- `EnableMMSEPrecoding(bool enable)`
-- `SetAlpha(double alpha)`
-- `GetMetrics() const` 
----
-
-## 8. Hook 點與替代方案
-
-正式規格要求先確認這些 trace 是否存在：
-
-| Hook | 用途 | 必要性 | 若不存在 |
-|---|---|---|---|
-| `DaRequestReceived` | 收需求，觸發 EM | 必要 | 解析 `SatGwMac::Rx` 封包頭 |
-| `SlotAllocated` | slot 邊界同步 | 必要 | 以 `Simulator::Schedule` 推算 |
-| `GwMac::Tx` | throughput | 必要 | `PhyTxEnd` |
-| `GwMac::Rx` | enqueue 觸發 | 必要 | `PhyRxEnd` |
-| `ChannelEstimation` | CSI / MMSE | MMSE 開啟時必要 | `SatPhyRxCarrier::SNR` 近似 |
-| `HandoverCompleted` | handover / queue migration | LEO 多衛星時必要 | 監聽節點位置更新 |
-
+**Print() 輸出格式（per-beam patterns）：**
+```
+Slot [0 ms .. 26 ms]  beams={1,4}  radius=1:SMALL,4:LARGE  modcod=5  clusters={1,4}
+```
 
 ---
 
-## 9. KPI 與驗證目標
+### 5.6 SatL1RoutingInterface（Layer 1 預留介面，stub）
 
-正式規格定義的 KPI 目標：
+**職責**：Layer 2 與 Layer 1 ISL Routing 的橋接介面，目前為 stub 實作。
 
-- throughput 提升：`+1.43% ~ +3.44%`
-- 平均延遲降低：`-35.5% ~ -62.25%`
-- JFI：`≥ 0.90`
-- dwell utilization：`≥ 85%`
-- drop rate：`< 0.5%` 
+**主要 Attributes（TypeId）：**
+- `Enabled` : bool, 預設 false（stub 模式）
 
-### 量測條件
-- 去除前 10 秒 warm-up
-- 模擬時長建議 `≥ 300 秒`
-- 要含足夠流量變化週期
+**主要 Methods：**
+- `GetActivePathBeams(srcGwId, dstGwId) → std::set<uint32_t>` — 回傳路由路徑所用的 beamId 集合
+- `GetLinkLoad(satId, beamId) → double loadMbps` — 回傳目前 ISL / feeder 負載
+- `RegisterBeamStateCallback(BeamStateCallback cb)` — 當 beam 上線 / 下線時通知 Layer 1
 
----
-
-## 10. 實作 Phase 與依賴
-
-### Phase 1   資料模型 + 被動觀測
-    - SatBhTimePlan   → BHTP 資料結構，靜態建立
-    - SatBhMetrics    → 被動收 KPI，不影響任何控制流
-
-### Phase 2   加入控制面：動態排程 + OBC 執行
-    - SatBhScheduler  → NCC 端，EM 演算法 → 動態產生 BHTP
-    - SatBhObc        → 衛星端，接收 BHTP → 狀態機執行 slot 切換
-
-### Phase 3   加入資料面：緩衝封包 + 干擾抑制
-    - SatGwCacheQueue → GW 端，beam 非活躍時暫存封包
-    - SatBhPrecoder   → GW 端，cluster ≥ 2 beam 時做 MMSE 預編碼
----
-
-## 11. 執行順序
-
-### Step 0 - Trace feasibility check
-先確認：
-- `DaRequestReceived`
-- `SlotAllocated`
-- `GwMac Tx/Rx`
-- `ChannelEstimation`
-- `HandoverCompleted`
-
-是否存在、路徑是否正確、callback 簽章是否匹配。  
-若不存在，先記錄 fallback，不要直接開始寫模組。
-
-### Step 1 - 純資料模型
-完成 `SatBhTimePlan` / `BhSlotEntry`
-- 序列化 / pretty print
-- slot 邊界計算
-- planId 驗證
-- unit test
-
-### Step 2 - 被動 metrics
-完成 `SatBhMetrics`
-- throughput
-- delay
-- JFI
-- drop rate
-- csv writer
-
-### Step 3 - 最小排程器
-完成 `SatBhScheduler` 的 EM only 版本
-- 先不做完整 radius / interference / MMSE
-- 先驗證 `OnDemandReceived -> d_n -> TimePlan`
-
-### Step 4 - 最小 OBC
-完成 `SatBhObc`
-- 單衛星
-- 固定 BHTP
-- 驗證 slot -> switching -> next slot 流程
-
-### Step 5 - Cache Queue
-完成 `SatGwCacheQueue`
-- beam inactive 暫存
-- slot start dequeue
-- delay / drop 輸出
-
-### Step 6 - 完整 scheduler
-補齊：
-- virtual demand
-- hotspot / non-hotspot split
-- radius selection
-- cluster grouping
-- K-limited slot packing
-
-### Step 7 - Precoder
-完成 `SatBhPrecoder`
-- 固定 H 驗證
-- cluster size >= 2 時啟動
-
-### Step 8 - Helper
-完成 `SatBhHelper`
-- 統一安裝
-- flag 控制
-- alpha / mmse 開關
-- metrics 對外介面
-
-### Step 9 - 全情境實驗
-跑：
-- baseline 1
-- baseline 2
-- fixed demand single sat
-- Iridium Walker full-scale
+**Layer 1 → Layer 2**：保護路由使用中的 beam 不被 BH scheduler 關閉  
+**Layer 2 → Layer 1**：beam 狀態改變時觸發 routing cost 重算
 
 ---
 
-## 12. 基礎情境與全規模情境
+### 5.7 SatBhKpiLogger（新增，Phase E）
 
-## 12.1 基礎驗證情境
-- 1 顆衛星
-- 7 個 beams
-- K = 2
-- Poisson demand
-- 3 熱點、4 非熱點
-- 模擬 300 秒
-- α = 2
-- κ = 0.08
-- MMSE 關閉 
+**職責**：Frame-level KPI 統一觀測點，補足 `SatBhMetrics`（packet-level beam KPI）無法覆蓋的 5 個核心指標。由 `SatResourceManager` 持有，每 503 ms flush 一行 CSV。
 
-## 12.2 全規模 Iridium Walker
-- 66 顆衛星
-- 每衛星最多 19 beams
-- K = 3
-- 熱點密度 r = 0.3 / 0.45 / 0.6
-- 模擬 600 秒
-- α = 2, 3, 4, 5
-- κ = 0.05, 0.08, 0.12
-- MMSE 開關對照
-- 原生 handover 啟用 
+**與 SatBhMetrics 的分工：**
 
-## 12.3 Baselines
-- Baseline 1: 靜態 beam，無 BH，無 Cache Queue
-- Baseline 2: 固定 pattern BH，不做 EM，各 beam 均分 slots 
+| 模組 | 粒度 | 輸出來源 |
+|------|------|----------|
+| SatBhMetrics | Packet-level per-beam | OBC BeamActivate/Deactivate 回呼 |
+| SatBhKpiLogger | Frame-level per-beam | ResourceManager + SNS3 trace |
+
+**5 KPI 覆蓋：**
+
+| 指標 | 欄位 | 來源 |
+|------|------|------|
+| Capacity-Demand Gap | `allocated_kbps`, `sns3_demand_kbps`, `gap_kbps` | `UsableCapacityTrace` + `UnmetCapacityTrace` |
+| E2E Latency | `avg_delay_ms`, `max_delay_ms` | `SatNetDevice::RxDelay` |
+| Packet Delivery Rate | `pdr_pct` | Tx/Rx 計數器 |
+| Power Consumption | `tx_power_dbw` | `SatPowerAllocator::PowerMap` |
+| User Association Count | `assigned_ut_count` | `AssignmentMap` |
+
+**CSV Schema：**
+```
+frame_id, sim_time_s, sat_id, beam_id,
+allocated_kbps, sns3_demand_kbps, bh_demand_kbps, unmet_kbps, gap_kbps,
+tx_power_dbw, assigned_ut_count,
+avg_delay_ms, max_delay_ms, pdr_pct, sample_count
+```
+
+**主要 API：**
+```cpp
+void SetOutputFile(const std::string& path);
+void OnUsableCapacity(uint32_t satId, uint32_t beamId, uint32_t kbps);
+void OnUnmetCapacity(uint32_t satId, uint32_t beamId, uint32_t kbps);
+void OnPacketDelay(Time delay);
+void OnPacketTx();
+void OnFrameOptimized(uint32_t frameId,
+                      const std::map<uint32_t, BeamConfig>& beamConfigs,
+                      const std::vector<UtInfo>& utList,
+                      const AssignmentMap& assignment);
+```
+
+**SNS3 接線（SatBhHelper::ConnectTraces()）：**
+```cpp
+// UsableCapacityTrace / UnmetCapacityTrace
+Ptr<SatBeamScheduler> sched = ncc->GetBeamScheduler(satId, beamId);
+sched->TraceConnectWithoutContext("UsableCapacityTrace",
+    MakeBoundCallback(&SatBhKpiLogger::OnUsableCapacity, logger, satId, beamId));
+// RxDelay（全局 delay / PDR）
+Config::ConnectWithoutContext(
+    "/NodeList/*/DeviceList/*/$ns3::SatNetDevice/RxDelay",
+    MakeCallback(&SatBhKpiLogger::OnPacketDelay, logger));
+```
+
+**flush 觸發**：`RunFrameOptimization()` 結束時呼叫 `OnFrameOptimized()`，保證 frame_id 與所有欄位對齊，無 timer 漂移。
 
 ---
-## 13.Reference
-[A Beam Hopping Scheme Based on Adaptive Beam Radius for LEO Satellites](https://pmc.ncbi.nlm.nih.gov/articles/PMC11511224/)\
-[The Next Generation of Beam Hopping Satellite Systems: Dynamic Beam Illumination with](https://ieeexplore.ieee.org/document/9923617)
+
+### 5.8 既有模組（保留，不改動）
+
+| 模組 | 職責 | 狀態 |
+|------|------|------|
+| SatBhObc | 接收 BHTP、執行 beam switching 狀態機（IDLE/ACTIVE/SWITCHING/WAIT_PLAN） | ✅ 保留 |
+| SatGwCacheQueue | beam inactive 時暫存封包，slot 開始時排空 | ✅ 保留 |
+| SatBhPrecoder | cluster ≥ 2 beam 時執行 MMSE 預編碼 | ✅ 保留 |
+| SatBhMetrics | 被動收集 packet-level KPI（throughput/delay/JFI/drop_rate/dwell_time） | ✅ 保留 |
+| SatBhTimePlan | BHTP 資料模型（BhSlotEntry per-beam 擴充） | ✅ 已擴充（Phase B） |
+| SatL1RoutingInterface | Layer 1 ISL Routing 預留介面 | ✅ stub 實作 |
+
+---
+
+## 6. SNS3 Hook 對照表
+
+> 所有 API 均在 Phase E 實作時確認。✅ = Phase E 中已接線；🔒 = 不使用。
+
+| 功能 | SNS3 API | 所在檔案 | 單位 / 注意事項 | Phase E |
+|------|----------|----------|----------------|:-------:|
+| 改變 beam 功率 | `SatPhy::SetTxMaxPowerDbw(double)` + `Initialize()` | satellite-phy.h:259 | **dBW**；改完必須呼叫 `Initialize()` 重算 `m_eirpWoGainW` | ✅ |
+| 取得 orbiter beam PHY | `SatOrbiterNetDevice::GetUserPhy(beamId)` | satellite-orbiter-net-device.h:129 | 回傳 `Ptr<SatPhy>` | ✅ |
+| 取得 orbiter node | `SatTopology::GetOrbiterNode(satId)` | satellite-topology.h:403 | — | ✅ |
+| UT beam 完整重分配 | `SatNcc::MoveUtBetweenBeams(Address utAddr, srcSat, srcBeam, dstSat, dstBeam)` | satellite-ncc.h:249 | 傳入 **MAC Address**（非 uint32_t utId）；含 TIM-U + handover delay | ✅ |
+| UT MAC Address 查詢 | `SatNetDevice::GetAddress()` | satellite-net-device.h | 用於建立 utId → MAC Address 映射表 | ✅ |
+| UT 所在 beam 查詢 | `SatTopology::GetUtBeamId(Ptr<Node>)` | satellite-topology.h:635 | PollUtStates 每幀呼叫 | ✅ |
+| UT 所屬衛星查詢 | `SatTopology::GetUtSatId(Ptr<Node>)` | satellite-topology.h:626 | 用於過濾 multi-sat 場景 | ✅ |
+| 全部 UT 節點 | `SatTopology::GetUtNodes()` | satellite-topology.h:292 | 回傳 NodeContainer | ✅ |
+| 取得 NCC | `SimHelper->GetSatHelper()->GetBeamHelper()->GetNcc()` | simulation-helper.h:486 | — | ✅ |
+| Capacity KPI trace | `SatBeamScheduler::UsableCapacityTrace` + `UnmetCapacityTrace` | satellite-beam-scheduler.cc:269 | 用於 SatBhKpiLogger 接線 | ✅ |
+| Packet delay trace | `SatNetDevice::RxDelay` | satellite-net-device.cc:104 | 用於 delay / PDR 統計 | ✅ |
+| UT scheduler-only 搬移 | `SatBeamScheduler::TransferUtToBeam(utId, dstScheduler)` | satellite-beam-scheduler.cc:973 | 🔒 只搬 NCC 資料，UT MAC/PHY/routing 不更新；不使用 | 🔒 |
+
+---
+
+## 7. 實作 Phase
+
+### Phase A — 文件重寫（✅ 完成）
+重寫 Layer2.md 涵蓋雙尺度框架、所有模組規格。
+
+---
+
+### Phase B — 資料模型擴充（✅ 完成）
+- `SatBhTimePlan` / `BhSlotEntry` 擴充：
+  - 加入 `beamPatterns : std::map<uint32_t, BeamRadiusType>`（per-beam，取代 slot-wide `beamRadius`）
+  - 加入 `scheduledUtIds`、`allocatedPowerDbw`、`frameId`
+  - 新增 `SetBeamPattern()` / `GetBeamPattern()` helpers
+- 新增 `SatL1RoutingInterface`（stub）
+
+---
+
+### Phase C — Frame-scale模組（✅ 完成）
+- `SatUserAssociator`：WFQ / Priority / RR + `MoveUtBetweenBeams` 接線（傳入 MAC Address）
+- `SatResourceManager`：Self-scheduling loop（503 ms）、整合 UserAssociator + PowerAllocator
+- `SatBeamPatternSelector`：**已確認不可在執行期動態切換**（SNS3 `SetTxAntennaGainPattern()` 只允許初始化一次）→ 改為 setup-time 靜態分配，為**選配功能（feature flag）**，視論文需求延後實作
+
+---
+
+### Phase D — Slot-scale模組（✅ 完成）
+- `SatPowerAllocator`：IWFA water-filling 迭代功率最佳化
+  - 最佳化變數：`m_eirpWoGainW` per beam（linear W）
+  - 寫回：`phy->SetTxMaxPowerDbw(dBW)` + `phy->Initialize()`
+- ~~`SatUserScheduler`~~：已合併至 Phase C 的 `SatUserAssociator`
+
+---
+
+### Phase E — 真實 SNS3 API 接線（✅ 完成，2026-05-14）
+- `SatBhHelper::ConnectTracesPhaseE()`：
+  1. `BuildUtAddressMap()`：建立 container index → MAC Address 映射（`SatNetDevice::GetAddress()`）
+  2. `CacheOrbiterDevice()`：快取 `SatOrbiterNetDevice`（供 ApplyPowerCallback 使用）
+  3. `MoveUtCallback` → `SatNcc::MoveUtBetweenBeams(MAC Address, ...)`（真實 UT 重分配）
+  4. `ApplyPowerCallback` → `SatOrbiterUserPhy::SetTxMaxPowerDbw()` + `Initialize()`
+  5. `PollUtStates()`：每 T_frame 查詢 `SatTopology::GetUtBeamId()`，更新 RM 中的 UT 狀態
+- 啟動條件：`enablePhaseE=1` AND `enableResourceManager=1` AND `SetSimulationHelper()` 已呼叫
+- 驗證結果：見 §8
+
+---
+
+### Phase F — 真實需求輸入（待實作）
+- `PollUtStates()`：目前使用合成需求 1000 kbps，Phase F 接 `SatGwMac` DAMA 請求佇列 trace
+- `SatResourceManager` channelGains：目前為 1.0，Phase F 接 `SatPhy::CnoInfo` trace
+
+---
+
+## 8. Phase E 驗證結果（2026-05-14）
+
+### 8.1 測試指令
+
+```bash
+NS_LOG="SatBhHelper=info:SatResourceManager=info" \
+./ns3 run "sat-bh-example --enableResourceManager=1 --enableUserAssociation=1 \
+           --enablePowerAllocation=1 --enablePhaseE=1 \
+           --satId=1 --simTime=60" 2>&1 | tee bh_phasee_v2.log
+```
+
+**注意**：`--satId=1`（2-satellite 場景所有 UT 均在 SAT 1；預設 satId=0 會過濾掉全部 UT）。
+
+---
+
+### 8.2 Phase E Wiring 確認
+
+```
+SatBhHelper::BuildUtAddressMap: scanning 5 UT nodes
+SatBhHelper::BuildUtAddressMap: mapped 5 of 5 UTs
+SatBhHelper::CacheOrbiterDevice: found SatOrbiterNetDevice on sat 1 (device index=0)
+SatBhHelper::ConnectTracesPhaseE: MoveUtCallback wired to SatNcc
+SatBhHelper::ConnectTracesPhaseE: ApplyPowerCallback wired to SatOrbiterUserPhy
+SatBhHelper::ConnectTracesPhaseE: scheduling PollUtStates() every T_frame=503ms
+```
+
+---
+
+### 8.3 ResourceManager 自排程迴圈
+
+```
+SatResourceManager::RunFrameOptimization frameId=1  t=0s      utCount=0   ← PollUtStates 尚未執行
+SatResourceManager::RunFrameOptimization frameId=2  t=0.503s  utCount=5   ← 第一次 Poll 後 UT 注入
+SatResourceManager::RunFrameOptimization frameId=3  t=1.006s  utCount=5
+...
+SatResourceManager::RunFrameOptimization frameId=120 t=59.857s utCount=5  ← 全程穩定
+```
+
+**frameId=1 的 utCount=0 說明**：`DoInitialize()` 在 t=0 立即觸發 RM，但 `PollUtStates()` 也排在 t=0，NS-3 事件佇列執行順序造成第一幀 UT 尚未注入。frameId=2 起穩定（設計行為，非 race condition）。
+
+---
+
+### 8.4 Per-beam Pattern 輸出確認
+
+```
+Slot [0 ms .. 26 ms]  beams={1,4}  radius=1:SMALL,4:LARGE  modcod=5  clusters={1,4}
+```
+
+---
+
+### 8.5 輸出檔案
+
+| 檔案 | 內容 |
+|------|------|
+| `bh-metrics.csv` | Packet-level beam KPI（SatBhMetrics，每 503 ms） |
+| `bh-timeplan.csv` | BHTP slot table（per-beam pattern 格式） |
+| `bh-attributes.xml` | ns-3 ConfigStore attribute snapshot |
+
+---
+
+## 9. 模擬情境
+
+| 情境 | BH | Pattern Sel | User Scheduling | Power Alloc | 目的 |
+|------|----|:-----------:|:---------------:|:-----------:|------|
+| Baseline | ❌ | ❌ | ❌ | Equal | 參考基準 |
+| BH-only | ✅ | ❌ | ❌ | Equal | 驗證現有 BH 核心 |
+| BH + QoS | ✅ | ✅ | ✅ | Equal | 驗證排程 QoS 效益 |
+| Full System | ✅ | ✅ | ✅ | ✅ | 完整系統效能評估 |
+
+每個情境：模擬 300 秒，去除前 10 秒 warm-up，輸出 CSV 至 `Outputs/`。
+
+---
+
+## 10. KPI 驗證目標
+
+| 指標 | 目標值 | 說明 |
+|------|--------|------|
+| Capacity-demand gap | Full < Baseline | 主要研究指標 |
+| 平均延遲 | BH+QoS vs Baseline ↓ ≥ 30% | 排程效益 |
+| Jain Fairness Index | ≥ 0.90 | 使用者公平性 |
+| Drop rate | < 0.5% | 緩衝設計驗證 |
+| Min-rate 滿足率 | ≥ 95% | QoS 保證 |
+
+---
+
+## 11. 關鍵檔案清單
+
+### 新增檔案（已完成）
+
+| 檔案 | 模組 | Phase | 狀態 |
+|------|------|-------|------|
+| `sat-user-associator.h/.cc` | SatUserAssociator（WFQ/Priority/RR + MoveUtBetweenBeams） | C | ✅ |
+| `sat-bh-resource-manager.h/.cc` | SatResourceManager（503 ms self-scheduling loop） | C | ✅ |
+| `sat-power-allocator.h/.cc` | SatPowerAllocator（IWFA water-filling） | D | ✅ |
+| `sat-l1-routing-interface.h/.cc` | SatL1RoutingInterface（stub） | B | ✅ |
+| `sat-bh-kpi-logger.h/.cc` | SatBhKpiLogger（frame-level 5 KPI CSV） | E | 設計完成，待實作 |
+| `sat-beam-pattern-selector.h/.cc` | SatBeamPatternSelector（setup-time 靜態選配） | C | 選配，延後 |
+
+### 已修改檔案
+
+| 檔案 | 變更內容 | 狀態 |
+|------|---------|------|
+| `sat-bh-time-plan.h/.cc` | BhSlotEntry 擴充：per-beam `beamPatterns`、`scheduledUtIds`、`allocatedPowerDbw`；SatBhTimePlan 加 `frameId` | ✅ |
+| `sat-bh-helper.h/.cc` | Phase C/D/E 模組安裝、feature flags、`ConnectTracesPhaseE()`、`PollUtStates()` | ✅ |
+| `sat-bh-scheduler.cc` | `BuildPlan()` 改用 per-beam `SetBeamPattern()` | ✅ |
+| `sat-bh-example.cc` | Phase C/D/E CLI args、`SetSimulationHelper()` | ✅ |
+
+---
+
+## 12. 參考文獻
+
+1. [A Beam Hopping Scheme Based on Adaptive Beam Radius for LEO Satellites](https://pmc.ncbi.nlm.nih.gov/articles/PMC11511224/)
+2. [The Next Generation of Beam Hopping Satellite Systems: Dynamic Beam Illumination with Multi-timescale Resource Management](https://ieeexplore.ieee.org/document/9923617)

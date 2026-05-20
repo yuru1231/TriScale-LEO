@@ -1,0 +1,479 @@
+<mxfile host="65bd71144e">
+    <diagram name="sat-bh-example Code Flow" id="bh-flow">
+        <mxGraphModel dx="1674" dy="779" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="3300" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="L1" value="main()" style="text;html=1;align=center;fontStyle=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="10" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="L2" value="SatBhHelper::Install()" style="text;html=1;align=center;fontStyle=1;fontSize=13;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="310" y="10" width="250" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="M0" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="60" width="150" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="M1" value="ParseConfig(argc, argv)&#xa;→ BhExperimentConfig&#xa;simTime / numBeams / maxActiveBeams&#xa;enableScheduler / enableObc&#xa;enableCacheQueue / enablePrecoder&#xa;enableResourceManager / schedulingMode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="130" width="200" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="M2" value="Step 1: SNS3 Global Config&#xa;ForwardLinkRegenerationMode = NETWORK&#xa;ReturnLinkRegenerationMode = NETWORK&#xa;HandoversEnabled = true&#xa;NumberClosestSats = 2&#xa;DisableSchedulingIfNoDeviceConnected&#xa;QueueSize = 100000 / PacketTrace = true" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="250" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="M3" value="Step 2: Build SNS3 Scenario&#xa;CreateObject&lt;SimulationHelper&gt;&#xa;SetSimulationTime / SetGwUserCount(1)&#xa;SetBeamSet(1..numBeams)&#xa;LoadScenario(leo-2-satellites)&#xa;CreateSatScenario(NONE)&#xa;PrintTopology()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="380" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="M4" value="Step 3: Traffic Setup&#xa;FWD CBR (hotspot): 20ms / 1500B&#xa;  GwUser→UtUsers, start=warmUpSec&#xa;RTN CBR: 100ms / 512B&#xa;  GwUser→UtUsers, start=warmUpSec" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="510" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="M5" value="Step 4: BH Installation&#xa;bhHelper = CreateObject&lt;SatBhHelper&gt;()&#xa;bhHelper-&gt;Configure(cfg)&#xa;bhHelper-&gt;Install()  →" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="620" width="200" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="M6" value="Step 5: SNS3 Statistics&#xa;AddPerBeamFwdAppThroughput(SCATTER)&#xa;AddPerBeamFwdUserDevThroughput&#xa;AddPerBeamRtnAppThroughput(SCATTER)&#xa;AddPerBeamBeamServiceTime(SCALAR)&#xa;AddPerSatFwd/RtnAppThroughput" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="720" width="200" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="M7" value="Step 6: Attributes Snapshot&#xa;ConfigStore → bh-attributes.xml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="840" width="200" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="M8" value="Step 7: Run Simulation&#xa;EnableProgressLogs()&#xa;RunSimulation()&#xa;[ns-3 event loop executes]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="920" width="200" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="M9" value="Step 8: Final KPI Flush&#xa;bhHelper-&gt;GetMetrics()-&gt;FinalFlush()&#xa;→ appends remaining rows to bh-metrics.csv" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1015" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="MA" value="Step 9: Summary Output (stdout)&#xa;bh-metrics.csv / bh-timeplan.csv&#xa;data/ (SNS3) / bh-attributes.xml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1105" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="MB" value="END  (return 0)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="65" y="1195" width="130" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M01" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M0" target="M1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M1" target="M2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M2" target="M3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M34" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M3" target="M4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M45" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M4" target="M5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M56" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M5" target="M6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M67" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M6" target="M7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M78" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M7" target="M8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M89" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M8" target="M9" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M9A" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="M9" target="MA" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_MAB" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="MA" target="MB" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_M5_I0" value="calls Install()" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#b85450;fontStyle=2;fontSize=10;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="M5" target="I0" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="I0" value="SatBhHelper::Install()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="60" width="230" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_P1" value="PHASE 1  (always active)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="120" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="I1" value="BuildStaticBhtp(t=0)&#xa;M = ceil(T_p / T_s) = 19 slots&#xa;Pair hotspot+non-hotspot round-robin&#xa;beamRadius: SMALL if hotspot, else LARGE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="165" width="230" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="I2" value="Validate(maxActiveBeams K)&#xa;PrettyPrint() → stdout&#xa;ToCsv() → bh-timeplan.csv" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="255" width="230" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="I3" value="Create SatBhMetrics&#xa;SetOutputFile(metricsOutputFile)&#xa;SetReportInterval(T_p = 503 ms)&#xa;SetWarmUpTime(warmUpSec)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="330" width="230" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_P2" value="PHASE 2  (opt-in)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="415" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="I4" value="enableObc?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="365" y="460" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="I5" value="SetupObc()&#xa;Create SatBhObc  SetSatId / SwitchingTimeMs&#xa;Wire BeamActivate → Metrics::OnSlotActivated&#xa;Wire BeamDeactivate → Metrics::OnSlotDeactivated" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="530" width="230" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="I6" value="enableScheduler?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="365" y="620" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="I7" value="SetupScheduler()&#xa;Create SatBhScheduler&#xa;Set NumBeams / K / alpha / kappa&#xa;Set EmMaxIterations / PropagationDelayMs&#xa;If enableObc: wire PlanReadyCallback&#xa;  → OBC::ReceiveNewPlan(plan, propDelay)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="690" width="230" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_P3" value="PHASE 3  (opt-in)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="795" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="I8" value="enableCacheQueue?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="840" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="I9" value="SetupCacheQueue()&#xa;Create SatGwCacheQueue  SetSatId&#xa;Set MaxQueueSizeMB&#xa;Wire Drop → Metrics::OnPacketDropped&#xa;Wire Dequeue → Metrics::OnPacketReceived&#xa;If OBC: override BeamActivate →&#xa;  Metrics::OnSlotActivated + CacheQueue::DequeueAll" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="910" width="230" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="IA" value="enablePrecoder?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="1030" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="IB" value="SetupPrecoder()  [STUB]&#xa;Create SatBhPrecoder&#xa;SetEnabled / NoisePowerDb" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1100" width="230" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="IC" value="ConnectTraces()  [STUB — Phase 4]&#xa;Pending SNS3 hook feasibility check" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1175" width="230" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="ID" value="Schedule: Metrics flush loop&#xa;Simulator::Schedule(warmUpSec,&#xa;  SatBhMetrics::ScheduleNextFlush)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1240" width="230" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="IE" value="!enableObc?&#xa;(need synthetic driver)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="1320" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="IF" value="ApplySyntheticSlot()  every T_s&#xa;Reads static plan slot[i mod M]&#xa;OnSlotActivated(satId, beamId, usable)&#xa;OnPacketReceived × numPkts (hotspot:5, else:2)&#xa;OnPacketDropped if hotspot &amp;&amp; slot%20==0&#xa;OnSlotDeactivated(usedDur)&#xa;Re-schedules itself → Simulator::Schedule(T_s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1400" width="230" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="IG" value="enableScheduler?&#xa;(start demand driver)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="1520" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="IH" value="ApplySyntheticDemand()  every T_s&#xa;For each beam b (1..numBeams):&#xa;  base = hotspot?6:2, amp = hotspot?2:0.5&#xa;  phase = b×π/3  (60° offset per beam)&#xa;  demand = base + amp×sin(2π×t/60+phase)&#xa;  Scheduler::OnDemandReceived(beamId, demand)&#xa;SchedulerCycle: ScheduleNextCycle(warmUpSec)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1600" width="230" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_PC" value="PHASE C  (opt-in)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1725" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="II" value="enableResourceManager?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="345" y="1770" width="180" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="IJ" value="SetupPhaseC()  →" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="340" y="1845" width="190" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="IZ" value="Install() complete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="350" y="2430" width="170" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI01" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I0" target="I_P1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_P1" target="I1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I1" target="I2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI34" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I2" target="I3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI3P2" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I3" target="I_P2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIP2_4" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_P2" target="I4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI4yes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I4" target="I5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI4no" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="I4" target="I6" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="600" y="485"/>
+                            <mxPoint x="600" y="645"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eI56" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I5" target="I6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI6yes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I6" target="I7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI6no" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="I6" target="I_P3" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="610" y="645"/>
+                            <mxPoint x="610" y="808"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eI7P3" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I7" target="I_P3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIP3_8" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_P3" target="I8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI8yes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I8" target="I9" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI8no" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="I8" target="IA" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="615" y="865"/>
+                            <mxPoint x="615" y="1055"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eI9A" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I9" target="IA" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIAyes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IA" target="IB" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIAno" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="IA" target="IC" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="618" y="1055"/>
+                            <mxPoint x="618" y="1197"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIBC" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IB" target="IC" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eICD" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IC" target="ID" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIDE" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="ID" target="IE" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIEyes" value="yes (OBC off)" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IE" target="IF" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIEno" value="no (OBC on)" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="IE" target="IG" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="620" y="1350"/>
+                            <mxPoint x="620" y="1550"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIFG" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IF" target="IG" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIGyes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IG" target="IH" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIGno" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="IG" target="I_PC" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="622" y="1550"/>
+                            <mxPoint x="622" y="1737"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIHPC" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IH" target="I_PC" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIPC_II" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_PC" target="II" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIIyes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="II" target="IJ" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIIno" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="II" target="I_PD" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="625" y="1797"/>
+                            <mxPoint x="625" y="1922"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIJZ" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IJ" target="I_PD" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="C0" value="SetupPhaseC()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="1770" width="230" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="C1" value="1. Create SatL1RoutingInterface  [STUB]&#xa;Enabled = enablePatternSelection (default false)&#xa;Initialize() — ISL query path pending Phase E" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="1830" width="230" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="C2" value="2. Create SatUserAssociator&#xa;SetSatId  SchedulingMode: WFQ(0)/Priority(1)/RR(2)&#xa;MaxReassignmentPerFrame / MaxDelayMs&#xa;Initialize()&#xa;(MoveUtCallback unwired until Phase E)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="1915" width="230" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="C3" value="3. Create SatResourceManager&#xa;FrameDuration = bhtpPeriodMs (503 ms)&#xa;EnableUserAssociation / EnablePatternSelection&#xa;NominalKbpsPerSlot / SatId&#xa;SetScheduler(m_scheduler)&#xa;SetUserAssociator(m_associator)&#xa;SetL1Interface(m_l1Interface)&#xa;SetFrameConfigCallback (if registered)&#xa;Initialize()&#xa;→ DoInitialize()&#xa;→ Simulator::Schedule(t=0, RunFrameOptimization)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2020" width="230" height="155" as="geometry"/>
+                </mxCell>
+                <mxCell id="CZ" value="SetupPhaseC() returns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="670" y="2195" width="190" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="eC01" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="C0" target="C1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eC12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="C1" target="C2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eC23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="C2" target="C3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eC3Z" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="C3" target="CZ" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIJ_C0" value="calls" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#d79b00;fontStyle=2;fontSize=10;" parent="1" source="IJ" target="C0" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eCZ_IZ" value="returns to Install()" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#d79b00;fontStyle=2;fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="CZ" target="IJ" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="600" y="2212"/>
+                            <mxPoint x="600" y="1865"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="OUT1" value="bh-timeplan.csv" style="shape=callout;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;perimeter=calloutPerimeter;fixedSize=1;size=15;direction=west;" parent="1" vertex="1">
+                    <mxGeometry x="560" y="260" width="130" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="eI2OUT1" style="dashed=1;strokeColor=#d6b656;" parent="1" source="I2" target="OUT1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="OUT2" value="bh-metrics.csv (periodic)" style="shape=callout;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;perimeter=calloutPerimeter;fixedSize=1;size=15;direction=west;" parent="1" vertex="1">
+                    <mxGeometry x="560" y="1250" width="155" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIDOUT2" style="dashed=1;strokeColor=#d6b656;" parent="1" source="ID" target="OUT2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="OUT3" value="bh-metrics.csv (final)" style="shape=callout;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;perimeter=calloutPerimeter;fixedSize=1;size=15;direction=east;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="1025" width="145" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="eM9OUT3" style="dashed=1;strokeColor=#d6b656;" parent="1" source="M9" target="OUT3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_PD" value="PHASE D  (opt-in, requires Phase C)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="1910" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="ID_c" value="enablePowerAllocation?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="345" y="1945" width="180" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="ID_do" value="SetupPhaseD()  →&#xa;Create SatPowerAllocator&#xa;Wire into ResourceManager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="2020" width="230" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_PE" value="PHASE E  (opt-in, requires Phase C + SetSimulationHelper)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="2085" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="IE_c" value="enablePhaseE?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="2120" width="160" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="IE_do" value="ConnectTracesPhaseE()  →&#xa;Wire real SNS3 callbacks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="2195" width="230" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="I_PF" value="PHASE F  (opt-in, requires Phase E)" style="text;html=1;align=center;fontStyle=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="2255" width="230" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="IF_c" value="enablePhaseF?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="2290" width="160" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="IF_do" value="ConnectTracesPhaseF()  →&#xa;Wire BacklogRequestsTrace" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="2365" width="230" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="D0" value="SetupPhaseD()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2260" width="230" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="D1" value="1. Create SatPowerAllocator&#xa;   TotalPowerBudgetDbm / NoisePowerDbw&#xa;   MaxIterations / ConvergenceEpsilon&#xa;   InterferenceFactor&#xa;   Initialize()&#xa;2. SetPowerAllocator(m_powerAllocator)&#xa;   → ResourceManager&#xa;3. EnablePowerAllocation = true&#xa;(ApplyPowerCallback wired in Phase E)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2305" width="230" height="125" as="geometry"/>
+                </mxCell>
+                <mxCell id="DZ" value="SetupPhaseD() returns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="660" y="2445" width="210" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="E0" value="ConnectTracesPhaseE()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2495" width="230" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="E1" value="1. BuildUtAddressMap()&#xa;   containerIdx → MAC Address&#xa;   satMapperIdToContainerIdx (Phase F)&#xa;2. CacheOrbiterDevice()&#xa;   find SatOrbiterNetDevice on satId&#xa;3. Wire MoveUtCallback&#xa;   → SatNcc::MoveUtBetweenBeams(&#xa;     addr, srcSat, srcBeam,&#xa;     dstSat, dstBeam)&#xa;4. Wire ApplyPowerCallback&#xa;   → SatOrbiterUserPhy::SetTxMaxPowerDbw&#xa;   + SatPhy::Initialize()&#xa;5. Schedule PollUtStates() at t=0&#xa;   every T_frame = bhtpPeriodMs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2540" width="230" height="185" as="geometry"/>
+                </mxCell>
+                <mxCell id="EZ" value="ConnectTracesPhaseE() returns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2740" width="230" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="F0" value="ConnectTracesPhaseF()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2790" width="230" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="F1" value="Get SatBeamHelper → SatNcc&#xa;For each (satId, beamId) in GetBeams():&#xa;  filter: satId == m_cfg.satId&#xa;  GetBeamScheduler(satId, beamId)&#xa;  TraceConnectWithoutContext(&#xa;    &quot;BacklogRequestsTrace&quot;,&#xa;    OnBacklogRequestTrace)&#xa;→ m_utDemandCache updated per RBDC&#xa;→ PollUtStates() reads cache&#xa;   instead of synthetic 0.0 fallback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2835" width="230" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="FZ" value="ConnectTracesPhaseF() returns" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="2990" width="230" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="ePD_IDc" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_PD" target="ID_c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIDc_yes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="ID_c" target="ID_do" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIDc_no" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="ID_c" target="I_PE" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="625" y="1972"/>
+                            <mxPoint x="625" y="2097"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIDdo_PE" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="ID_do" target="I_PE" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ePE_IEc" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_PE" target="IE_c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIEc_yes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IE_c" target="IE_do" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIEc_no" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="IE_c" target="I_PF" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="625" y="2147"/>
+                            <mxPoint x="625" y="2267"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIEdo_PF" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IE_do" target="I_PF" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ePF_IFc" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="I_PF" target="IF_c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIFc_yes" value="yes" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IF_c" target="IF_do" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIFc_no" value="no" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="IF_c" target="IZ" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="625" y="2317"/>
+                            <mxPoint x="625" y="2447"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eIFdo_IZ" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="IF_do" target="IZ" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIDdo_D0" value="calls" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#d79b00;fontStyle=2;fontSize=10;" parent="1" source="ID_do" target="D0" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIEdo_E0" value="calls" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#b85450;fontStyle=2;fontSize=10;" parent="1" source="IE_do" target="E0" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eIFdo_F0" value="calls" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#6c8ebf;fontStyle=2;fontSize=10;" parent="1" source="IF_do" target="F0" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eD01" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="D0" target="D1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eD1Z" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="D1" target="DZ" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eE01" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="E0" target="E1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eE1Z" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="E1" target="EZ" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eF01" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="F0" target="F1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eF1Z" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="F1" target="FZ" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

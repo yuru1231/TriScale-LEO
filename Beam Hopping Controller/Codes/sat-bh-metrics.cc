@@ -386,17 +386,20 @@ SatBhMetrics::EnsureFileOpen()
 {
     if (!m_csvFile.is_open())
     {
+        // ios::app lets multiple SatBhMetrics instances (one per satellite) share
+        // the same output file without clobbering each other's data.
+        // Header is written once per file: only when the file is brand-new (size==0).
         m_csvFile.open(m_outputPath, std::ios::out | std::ios::app);
         NS_ASSERT_MSG(m_csvFile.is_open(),
                       "SatBhMetrics: cannot open output file: " << m_outputPath);
-    }
 
-    if (!m_headerWritten)
-    {
-        m_csvFile << "time_s,sat_id,beam_id,"
-                     "throughput_mbps,avg_delay_ms,max_delay_ms,"
-                     "dwell_time_ms,slot_util_pct,drop_rate_pct,"
-                     "jain_fairness_index\n";
+        if (m_csvFile.tellp() == std::streampos(0))
+        {
+            m_csvFile << "time_s,sat_id,beam_id,"
+                         "throughput_mbps,avg_delay_ms,max_delay_ms,"
+                         "dwell_time_ms,slot_util_pct,drop_rate_pct,"
+                         "jain_fairness_index\n";
+        }
         m_headerWritten = true;
     }
 }

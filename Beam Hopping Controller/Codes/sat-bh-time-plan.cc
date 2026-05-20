@@ -27,9 +27,11 @@ BeamRadiusTypeToString(BeamRadiusType r)
 {
     switch (r)
     {
+        case BeamRadiusType::XSMALL: return "XSMALL";
         case BeamRadiusType::SMALL:  return "SMALL";
         case BeamRadiusType::MIDDLE: return "MIDDLE";
         case BeamRadiusType::LARGE:  return "LARGE";
+        case BeamRadiusType::XLARGE: return "XLARGE";
         default:                     return "UNKNOWN";
     }
 }
@@ -39,27 +41,40 @@ BeamRadiusTypeToString(BeamRadiusType r)
 BhSlotEntry::BhSlotEntry()
     : startTime(Seconds(0.0)),
       duration(MilliSeconds(26.5)),   // T_s default per spec Section 5.1
-      beamRadius(BeamRadiusType::MIDDLE),
       modcod(0)
 {
 }
 
 BhSlotEntry::BhSlotEntry(uint32_t beamId, Time start, Time dur,
-                          BeamRadiusType radius, ModcodIndex mc)
+                          BeamRadiusType pattern, ModcodIndex mc)
     : startTime(start),
       duration(dur),
-      beamRadius(radius),
       modcod(mc)
 {
     beamIds.push_back(beamId);
     // Single-beam slot: cluster ID defaults to the beam's own ID (no interference grouping)
     clusterIds.push_back(beamId);
+    // Record the per-beam pattern for this single-beam slot
+    beamPatterns[beamId] = pattern;
 }
 
 bool
 BhSlotEntry::ContainsBeam(uint32_t beamId) const
 {
     return std::find(beamIds.begin(), beamIds.end(), beamId) != beamIds.end();
+}
+
+void
+BhSlotEntry::SetBeamPattern(uint32_t beamId, BeamRadiusType pattern)
+{
+    beamPatterns[beamId] = pattern;
+}
+
+BeamRadiusType
+BhSlotEntry::GetBeamPattern(uint32_t beamId, BeamRadiusType defaultVal) const
+{
+    auto it = beamPatterns.find(beamId);
+    return (it != beamPatterns.end()) ? it->second : defaultVal;
 }
 
 void
@@ -75,8 +90,28 @@ BhSlotEntry::Print(std::ostream& os) const
         if (i) os << ",";
         os << beamIds[i];
     }
-    os << "}  radius=" << BeamRadiusTypeToString(beamRadius)
-       << "  modcod=" << modcod
+    // Per-beam pattern summary: radius=SMALL (or "beam1:SMALL,beam4:LARGE" if mixed)
+    os << "}  radius=";
+    if (beamPatterns.empty())
+    {
+        os << "MIDDLE";   // fallback when no patterns recorded
+    }
+    else if (beamPatterns.size() == 1)
+    {
+        os << BeamRadiusTypeToString(beamPatterns.begin()->second);
+    }
+    else
+    {
+        // Mixed patterns — show first; full per-beam detail in ToCsv
+        bool first = true;
+        for (const auto& kv : beamPatterns)
+        {
+            if (!first) os << ",";
+            os << kv.first << ":" << BeamRadiusTypeToString(kv.second);
+            first = false;
+        }
+    }
+    os << "  modcod=" << modcod
        << "  clusters={";
     for (size_t i = 0; i < clusterIds.size(); i++)
     {
@@ -102,6 +137,7 @@ SatBhTimePlan::GetTypeId()
 
 SatBhTimePlan::SatBhTimePlan()
     : m_planId(0),
+      m_n(0),
       m_periodStart(Seconds(0.0)),
       m_periodEnd(MilliSeconds(503.0))  // T_p default per spec Section 5.1
 {
@@ -114,6 +150,12 @@ SatBhTimePlan::SetPlanId(uint32_t id)
 {
     NS_ASSERT_MSG(id > 0, "SatBhTimePlan::SetPlanId: planId must be > 0");
     m_planId = id;
+}
+
+void
+SatBhTimePlan::SetFrameN(uint32_t n)
+{
+    m_n = n;  // n = frame number in the formal BH model
 }
 
 void
@@ -320,7 +362,7 @@ SatBhTimePlan::ToCsv() const
 {
     std::ostringstream oss;
     // Header matches the slot table format (not the KPI table)
-    oss << "slotIdx,startMs,durationMs,beamIds,beamRadius,modcod,clusterIds\n";
+    oss << "slotIdx,startMs,durationMs,beamIds,beamPatterns,modcod,clusterIds\n";
 
     for (size_t i = 0; i < m_slots.size(); i++)
     {
@@ -337,9 +379,16 @@ SatBhTimePlan::ToCsv() const
             if (j) oss << ";";
             oss << s.beamIds[j];
         }
-        oss << ","
-            << BeamRadiusTypeToString(s.beamRadius) << ","
-            << s.modcod << ",";
+        // per-beam patterns: "beamId:PATTERN" pairs, semicolon-separated
+        oss << ",";
+        bool firstPat = true;
+        for (uint32_t bid : s.beamIds)
+        {
+            if (!firstPat) oss << ";";
+            oss << bid << ":" << BeamRadiusTypeToString(s.GetBeamPattern(bid));
+            firstPat = false;
+        }
+        oss << "," << s.modcod << ",";
 
         // clusterIds — empty if not assigned
         for (size_t j = 0; j < s.clusterIds.size(); j++)

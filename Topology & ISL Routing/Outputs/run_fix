@@ -1,0 +1,366 @@
+
+[PREDICT] Phase 1: minimal-beam pre-routing to determine required feeder beams for gw2gw_e2e
+[PREDICT] minimalBeams={1,5,72}
+[CHKPT] 0s | Initialize: start
+[CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | InitOrbiterDevices: start
+[CHKPT] 0s | InitOrbiterDevices: done | satellites=66
+[CHKPT] 0s | Initialize: done | satellites=66 isls=132
+[CHKPT] 0s | PrecomputeAllTables: start | slots=3
+[CHKPT] PrecomputeAllTables: slot=0 t=0s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] 0s | PrecomputeAllTables: complete | wall=2ms
+[CHKPT] 0s | SetGwFeederSats: gwId=0 feederSats=14
+[CHKPT] 0s | SetGwFeederSats: gwId=1 feederSats=15
+[CHKPT] 0s | SetGwFeederSats: gwId=2 feederSats=14
+[CHKPT] 0s | PrecomputeGwRoutes: start | gws=2 pairs=1 slots=3
+[GwRouting] slot=0 t=0s GW0[JP-Tokyo]=2vis/14cand GW1[IN-NewDelhi]=2vis/15cand
+[GwRouting] slot=1 t=60s GW0[JP-Tokyo]=2vis/14cand GW1[IN-NewDelhi]=3vis/15cand
+[GwRouting] slot=2 t=120s GW0[JP-Tokyo]=2vis/14cand GW1[IN-NewDelhi]=3vis/15cand
+[CHKPT] 0s | PrecomputeGwRoutes: done | wall=0ms
+[CHKPT] 0s | GetRequiredGwFeederSats: gwSrc=0 gwDst=1 requiredSats=3
+[PREDICT] requiredSats (3): sat3(beam4) sat4(beam5) sat5(beam6)
+[PREDICT] excluded beam 1 from Phase 2 (belongs to gwIdx=0 which is not gwSrc=0 or gwDst=1)
+[PREDICT] excluded beam 72 from Phase 2 (belongs to gwIdx=4294967295 which is not gwSrc=0 or gwDst=1)
+[PREDICT] requiredBeams={4,5,6} (was ~26 with includeAllFeederBeams; physicalGwNodes in Phase 2 = 2)
+[PREDICT] Phase 1 complete. Destroying simulator for phase 2.
+
+[CFG] pathType=gw2gw_e2e obsFeederMode=PHY regenerationMode=network strict3gppScenarioD=0 scenarioName=constellation-iridium-66-sats-fixed simTime=120 slotInterval=60 numSlots=3 lastSlotTime=120
+[TOPO_BOOTSTRAP] enabledBeams={4,5,6} gatewayPresets=5 primaryBeamId=72
+[TOPO] physicalGwNodes=3 utUserNodes=91
+[TOPO] logicalGwId=0 physicalGwNode=present
+[TOPO] logicalGwId=1 physicalGwNode=present
+[ISL_DROP] trace connected: 264 ISL interfaces (132 unique links)
+[OBS] log opened: e2e_link_obs.csv
+[OBS] build=2026-04-17-fullobs-v1 feederSource=orbiter_rxfeeder
+[OBS] traces connected:  feeder=66  service=66  isl=264
+[OBS] snapshot interval=10s  dropAlertThresh=50%
+[RBDC] trace skipped (rbdcVerbose=0, use --rbdcVerbose=1 to enable)
+[CHKPT] 0s | Initialize: start
+[CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | InitOrbiterDevices: start
+[CHKPT] 0s | InitOrbiterDevices: done | satellites=66
+[CHKPT] 0s | Initialize: done | satellites=66 isls=132
+[CHKPT] 0s | PrecomputeAllTables: start | slots=3
+[CHKPT] PrecomputeAllTables: slot=0 t=0s | SAT0_routes=65 dijkstra=0ms total=1ms
+[CHKPT] PrecomputeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] 0s | PrecomputeAllTables: complete | wall=3ms
+[CHKPT] 0s | SetGwFeederSats: gwId=0 feederSats=14
+[GW_FEEDER] gwIdx=0 feederSats=14
+[CHKPT] 0s | SetGwFeederSats: gwId=1 feederSats=15
+[GW_FEEDER] gwIdx=1 feederSats=15
+[CHKPT] 0s | SetGwFeederSats: gwId=2 feederSats=14
+[GW_FEEDER] gwIdx=2 feederSats=14
+
+[CASE] gw2gw_e2e | gwSrc=0 gwDst=1
+[CHKPT] 0s | PrecomputeGwRoutes: start | gws=2 pairs=1 slots=3
+[GwRouting] slot=0 t=0s GW0[JP-Tokyo]=2vis/14cand GW1[IN-NewDelhi]=2vis/15cand
+[GwRouting] slot=1 t=60s GW0[JP-Tokyo]=2vis/14cand GW1[IN-NewDelhi]=3vis/15cand
+[GwRouting] slot=2 t=120s GW0[JP-Tokyo]=2vis/14cand GW1[IN-NewDelhi]=3vis/15cand
+[CHKPT] 0s | PrecomputeGwRoutes: done | wall=0ms
+
+=== GW-to-GW Route Report (v6) ===
+
+  [JP-Tokyo → IN-NewDelhi]
+slot  time(s)   entry   ISL_path                                          exit    isl_cost(s)     
+--------------------------------------------------------------------------------------------------
+0     0         3       3->4->5                                           5       0.026347        
+1     60        3       3->4                                              4       0.013173          <-- ROUTE CHANGED
+2     120       3       3->4                                              4       0.013174        
+
+  [IN-NewDelhi → JP-Tokyo]
+slot  time(s)   entry   ISL_path                                          exit    isl_cost(s)     
+--------------------------------------------------------------------------------------------------
+0     0         5       5->4->3                                           3       0.026347        
+1     60        4       4->3                                              3       0.013173          <-- ROUTE CHANGED
+2     120       4       4->3                                              3       0.013174        
+
+===================================
+
+[CHKPT] 0s | RegisterGwNode: gwId=1 nodeId=69
+[CASE] registered dstGwNode for gwId=1 nodeId=69
+[GW2GW_OBS][ROUTING_ISL] scopedIslLinks=2 gwSrc=0 gwDst=1
+[OBS] scope: feeder=2 service=0 isl=2
+[OBS] verdict_scope: feeder=2 service=0 isl=2
+
+=== Packet Path Trace (planned forwarding path) ===
+pathType=gw2gw_e2e trafficUtUserId=0
+[PKT_PATH] slot=0 t=0.0s GW0 -> feeder_up:sat3 -> isl_transit:sat3->sat4->sat5 -> feeder_down:GW1 obs_isl_keys=3-4|4-5
+[PKT_PATH] slot=1 t=60.0s GW0 -> feeder_up:sat3 -> isl_transit:sat3->sat4 -> feeder_down:GW1 obs_isl_keys=3-4
+[PKT_PATH] slot=2 t=120.0s GW0 -> feeder_up:sat3 -> isl_transit:sat3->sat4 -> feeder_down:GW1 obs_isl_keys=3-4
+=================================================
+
+
+=== Propagation Delay Audit ===
+[PROP] ISL routing cost uses dist/c. PointToPointIslChannel also computes distance/PropagationSpeed at packet transmit time; PropagationDelayTrace verifies the actual scheduled channel delay.
+[PROP][ISL_HOP] slot=0 sat3->sat4 dist_km=3952.00 theory_ms=13.173 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=0 sat4->sat5 dist_km=3952.17 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=0 feeder_ms=25.552 isl_ms=26.347 service_ms=-1.000 total_theory_ms=51.899
+[PROP][ISL_HOP] slot=1 sat3->sat4 dist_km=3952.04 theory_ms=13.173 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=1 feeder_ms=26.509 isl_ms=13.173 service_ms=-1.000 total_theory_ms=39.682
+[PROP][ISL_HOP] slot=2 sat3->sat4 dist_km=3952.08 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=2 feeder_ms=24.762 isl_ms=13.174 service_ms=-1.000 total_theory_ms=37.936
+===============================
+
+
+[E2E] pathType=gw2gw_e2e includesIsl=yes regenerationMode=network segments={feederlink=on, isl=on, servicelink=off} traffic=gw2gw_application logicalUtId=0 trafficUtUserId=0
+[E2E][feederlink] enabled
+[GW2GW_APP] FindGwNodeByExitSat: exitSat=5 feederIp=40.6.0.1 found at gwsIdx=0
+[GW2GW_APP] slot0 entrySat=3 GW0 feeder ifIndex=4 gwIp=40.4.0.1 satGwIp=40.4.0.2
+[GW2GW_APP] dstAddr (GW1)=40.6.0.1
+[GW2GW_APP] GW0=40.4.0.1 -> GW1=40.6.0.1 start=1.000s stop=119.000s
+[GW2GW_APP] === GW0 IPv4 routing table ===
+  [0] dst=127.0.0.0/255.0.0.0 gw=0.0.0.0 if=0 metric=0
+  [1] dst=40.1.0.0/255.255.0.0 gw=0.0.0.0 if=1 metric=0
+  [2] dst=40.2.0.0/255.255.0.0 gw=0.0.0.0 if=2 metric=0
+  [3] dst=10.7.0.0/255.255.0.0 gw=40.2.0.2 if=2 metric=0
+  [4] dst=10.8.0.0/255.255.0.0 gw=40.2.0.3 if=2 metric=0
+  [5] dst=10.9.0.0/255.255.0.0 gw=40.2.0.4 if=2 metric=0
+  [6] dst=10.10.0.0/255.255.0.0 gw=40.2.0.5 if=2 metric=0
+  [7] dst=40.3.0.0/255.255.0.0 gw=0.0.0.0 if=3 metric=0
+  [8] dst=40.4.0.0/255.255.0.0 gw=0.0.0.0 if=4 metric=0
+  [9] dst=40.5.0.0/255.255.0.0 gw=0.0.0.0 if=5 metric=0
+  [10] dst=40.6.0.0/255.255.0.0 gw=0.0.0.0 if=6 metric=0
+  [11] dst=10.17.0.0/255.255.0.0 gw=40.6.0.2 if=6 metric=0
+  [12] dst=10.18.0.0/255.255.0.0 gw=40.6.0.3 if=6 metric=0
+  [13] dst=10.19.0.0/255.255.0.0 gw=40.6.0.4 if=6 metric=0
+  [14] dst=10.20.0.0/255.255.0.0 gw=40.6.0.5 if=6 metric=0
+  [15] dst=10.21.0.0/255.255.0.0 gw=40.6.0.6 if=6 metric=0
+  [16] dst=40.7.0.0/255.255.0.0 gw=0.0.0.0 if=7 metric=0
+  [17] dst=40.8.0.0/255.255.0.0 gw=0.0.0.0 if=8 metric=0
+  [18] dst=40.9.0.0/255.255.0.0 gw=0.0.0.0 if=9 metric=0
+  [19] dst=40.10.0.0/255.255.0.0 gw=0.0.0.0 if=10 metric=0
+  [20] dst=40.11.0.0/255.255.0.0 gw=0.0.0.0 if=11 metric=0
+  [21] dst=40.12.0.0/255.255.0.0 gw=0.0.0.0 if=12 metric=0
+  [22] dst=40.13.0.0/255.255.0.0 gw=0.0.0.0 if=13 metric=0
+  [23] dst=40.14.0.0/255.255.0.0 gw=0.0.0.0 if=14 metric=0
+  [24] dst=40.15.0.0/255.255.0.0 gw=0.0.0.0 if=15 metric=0
+  [25] dst=40.16.0.0/255.255.0.0 gw=0.0.0.0 if=16 metric=0
+  [26] dst=10.40.0.0/255.255.0.0 gw=40.16.0.2 if=16 metric=0
+  [27] dst=10.41.0.0/255.255.0.0 gw=40.16.0.3 if=16 metric=0
+  [28] dst=10.42.0.0/255.255.0.0 gw=40.16.0.4 if=16 metric=0
+  [29] dst=10.43.0.0/255.255.0.0 gw=40.16.0.5 if=16 metric=0
+  [30] dst=10.44.0.0/255.255.0.0 gw=40.16.0.6 if=16 metric=0
+  [31] dst=10.45.0.0/255.255.0.0 gw=40.16.0.7 if=16 metric=0
+  [32] dst=10.46.0.0/255.255.0.0 gw=40.16.0.8 if=16 metric=0
+  [33] dst=10.47.0.0/255.255.0.0 gw=40.16.0.9 if=16 metric=0
+  [34] dst=10.48.0.0/255.255.0.0 gw=40.16.0.10 if=16 metric=0
+  [35] dst=40.17.0.0/255.255.0.0 gw=0.0.0.0 if=17 metric=0
+  [36] dst=40.18.0.0/255.255.0.0 gw=0.0.0.0 if=18 metric=0
+  [37] dst=10.49.0.0/255.255.0.0 gw=40.18.0.2 if=18 metric=0
+  [38] dst=10.50.0.0/255.255.0.0 gw=40.18.0.3 if=18 metric=0
+  [39] dst=40.19.0.0/255.255.0.0 gw=0.0.0.0 if=19 metric=0
+  [40] dst=40.20.0.0/255.255.0.0 gw=0.0.0.0 if=20 metric=0
+  [41] dst=40.21.0.0/255.255.0.0 gw=0.0.0.0 if=21 metric=0
+  [42] dst=10.51.0.0/255.255.0.0 gw=40.21.0.2 if=21 metric=0
+  [43] dst=40.22.0.0/255.255.0.0 gw=0.0.0.0 if=22 metric=0
+  [44] dst=10.54.0.0/255.255.0.0 gw=40.22.0.2 if=22 metric=0
+  [45] dst=10.55.0.0/255.255.0.0 gw=40.22.0.3 if=22 metric=0
+  [46] dst=40.23.0.0/255.255.0.0 gw=0.0.0.0 if=23 metric=0
+  [47] dst=10.59.0.0/255.255.0.0 gw=40.23.0.2 if=23 metric=0
+  [48] dst=40.24.0.0/255.255.0.0 gw=0.0.0.0 if=24 metric=0
+  [49] dst=10.66.0.0/255.255.0.0 gw=40.24.0.2 if=24 metric=0
+  [50] dst=40.25.0.0/255.255.0.0 gw=0.0.0.0 if=25 metric=0
+  [51] dst=10.67.0.0/255.255.0.0 gw=40.25.0.2 if=25 metric=0
+  [52] dst=10.68.0.0/255.255.0.0 gw=40.25.0.3 if=25 metric=0
+  [53] dst=40.26.0.0/255.255.0.0 gw=0.0.0.0 if=26 metric=0
+  [54] dst=40.27.0.0/255.255.0.0 gw=0.0.0.0 if=27 metric=0
+  [55] dst=40.28.0.0/255.255.0.0 gw=0.0.0.0 if=28 metric=0
+  [56] dst=40.29.0.0/255.255.0.0 gw=0.0.0.0 if=29 metric=0
+  [57] dst=40.30.0.0/255.255.0.0 gw=0.0.0.0 if=30 metric=0
+  [58] dst=40.31.0.0/255.255.0.0 gw=0.0.0.0 if=31 metric=0
+  [59] dst=40.32.0.0/255.255.0.0 gw=0.0.0.0 if=32 metric=0
+  [60] dst=40.33.0.0/255.255.0.0 gw=0.0.0.0 if=33 metric=0
+  [61] dst=40.34.0.0/255.255.0.0 gw=0.0.0.0 if=34 metric=0
+  [62] dst=10.72.0.0/255.255.0.0 gw=40.34.0.2 if=34 metric=0
+  [63] dst=10.73.0.0/255.255.0.0 gw=40.34.0.3 if=34 metric=0
+  [64] dst=10.74.0.0/255.255.0.0 gw=40.34.0.4 if=34 metric=0
+  [65] dst=10.75.0.0/255.255.0.0 gw=40.34.0.5 if=34 metric=0
+  [66] dst=40.35.0.0/255.255.0.0 gw=0.0.0.0 if=35 metric=0
+  [67] dst=40.36.0.0/255.255.0.0 gw=0.0.0.0 if=36 metric=0
+  [68] dst=40.37.0.0/255.255.0.0 gw=0.0.0.0 if=37 metric=0
+  [69] dst=40.38.0.0/255.255.0.0 gw=0.0.0.0 if=38 metric=0
+  [70] dst=10.79.0.0/255.255.0.0 gw=40.38.0.2 if=38 metric=0
+  [71] dst=40.39.0.0/255.255.0.0 gw=0.0.0.0 if=39 metric=0
+  [72] dst=10.81.0.0/255.255.0.0 gw=40.39.0.2 if=39 metric=0
+  [73] dst=40.40.0.0/255.255.0.0 gw=0.0.0.0 if=40 metric=0
+  [74] dst=40.41.0.0/255.255.0.0 gw=0.0.0.0 if=41 metric=0
+  [75] dst=40.42.0.0/255.255.0.0 gw=0.0.0.0 if=42 metric=0
+  [76] dst=40.43.0.0/255.255.0.0 gw=0.0.0.0 if=43 metric=0
+  [77] dst=40.44.0.0/255.255.0.0 gw=0.0.0.0 if=44 metric=0
+  [78] dst=40.45.0.0/255.255.0.0 gw=0.0.0.0 if=45 metric=0
+  [79] dst=40.46.0.0/255.255.0.0 gw=0.0.0.0 if=46 metric=0
+  [80] dst=40.47.0.0/255.255.0.0 gw=0.0.0.0 if=47 metric=0
+  [81] dst=40.48.0.0/255.255.0.0 gw=0.0.0.0 if=48 metric=0
+  [82] dst=40.49.0.0/255.255.0.0 gw=0.0.0.0 if=49 metric=0
+  [83] dst=40.50.0.0/255.255.0.0 gw=0.0.0.0 if=50 metric=0
+  [84] dst=40.51.0.0/255.255.0.0 gw=0.0.0.0 if=51 metric=0
+  [85] dst=10.84.0.0/255.255.0.0 gw=40.51.0.2 if=51 metric=0
+  [86] dst=40.52.0.0/255.255.0.0 gw=0.0.0.0 if=52 metric=0
+  [87] dst=40.53.0.0/255.255.0.0 gw=0.0.0.0 if=53 metric=0
+  [88] dst=40.54.0.0/255.255.0.0 gw=0.0.0.0 if=54 metric=0
+  [89] dst=40.55.0.0/255.255.0.0 gw=0.0.0.0 if=55 metric=0
+  [90] dst=40.56.0.0/255.255.0.0 gw=0.0.0.0 if=56 metric=0
+  [91] dst=40.57.0.0/255.255.0.0 gw=0.0.0.0 if=57 metric=0
+  [92] dst=40.58.0.0/255.255.0.0 gw=0.0.0.0 if=58 metric=0
+  [93] dst=40.59.0.0/255.255.0.0 gw=0.0.0.0 if=59 metric=0
+  [94] dst=10.86.0.0/255.255.0.0 gw=40.59.0.2 if=59 metric=0
+  [95] dst=40.60.0.0/255.255.0.0 gw=0.0.0.0 if=60 metric=0
+  [96] dst=40.61.0.0/255.255.0.0 gw=0.0.0.0 if=61 metric=0
+  [97] dst=10.90.0.0/255.255.0.0 gw=40.61.0.2 if=61 metric=0
+  [98] dst=40.62.0.0/255.255.0.0 gw=0.0.0.0 if=62 metric=0
+  [99] dst=40.63.0.0/255.255.0.0 gw=0.0.0.0 if=63 metric=0
+  [100] dst=40.64.0.0/255.255.0.0 gw=0.0.0.0 if=64 metric=0
+  [101] dst=40.65.0.0/255.255.0.0 gw=0.0.0.0 if=65 metric=0
+  [102] dst=40.66.0.0/255.255.0.0 gw=0.0.0.0 if=66 metric=0
+  [103] dst=90.1.0.0/255.255.0.0 gw=0.0.0.0 if=67 metric=0
+  [104] dst=0.0.0.0/0.0.0.0 gw=90.1.0.2 if=67 metric=0
+[GW2GW_APP] ===================================
+[GW2GW_APP] ARP prefill: GW0 if=4 40.6.0.1 -> 00:00:00:00:00:4b
+[GW2GW_APP] static host route: dst=40.6.0.1 if=4 (no gateway)
+[GW2GW_OBS][PACKET] PacketSink::Rx trace connected on GW1 (physical)
+[GW2GW_APP] tagged UDP source local=40.4.0.1 dst=40.6.0.1:9001 interval=100ms pktSize=512B start=1.000s stop=119.000s
+[E2E][isl] enabled
+[E2E][isl] routing/transit enabled without extra ISL-only load generator
+[E2E][servicelink] disabled
+[CHKPT] 0.000s | ScheduleRoutingUpdates: 3 events scheduled
+[CHKPT] 0.000s | ApplyRoutingTable: slot=0 t=0.000s | apply=0ms recompute=0ms recomputedSrc=0
+[GW2GW_ROUTE] slot=1 entrySat=3 exitSat=4 if=4 dstAddr=40.5.0.1 (prev=40.6.0.1) dstGwMac=00:00:00:00:00:4b
+[CHKPT] 60.000s | ApplyRoutingTable: slot=1 HasSignificantChange=YES
+[CHKPT] 60.000s | RecomputeAffectedRoutes: slot=1 recomputed=29/66 wall=2ms
+[CHKPT] 60.000s | ApplyRoutingTable: slot=1 t=60.000s | apply=3ms recompute=2ms recomputedSrc=29
+[OBS][SCOPE_UPDATE] slot=1 feeder=2 service=0 isl=3
+[GW2GW_TAG_DBG] pkt=0 now=60000.000ms txTime=60000.000ms delay=0.000ms
+[GW2GW_TAG_DBG] pkt=1 now=60100.000ms txTime=60100.000ms delay=0.000ms
+[GW2GW_TAG_DBG] pkt=2 now=60200.000ms txTime=60200.000ms delay=0.000ms
+[GW2GW_TAG_DBG] pkt=3 now=60300.000ms txTime=60300.000ms delay=0.000ms
+[GW2GW_TAG_DBG] pkt=4 now=60400.000ms txTime=60400.000ms delay=0.000ms
+[GW2GW_ROUTE] slot=2 entrySat=3 exitSat=4 if=4 dstAddr=40.5.0.1 (prev=40.6.0.1) dstGwMac=00:00:00:00:00:4b
+
+[GW2GW_APP] === Packet-layer delivery summary ===
+  src: GW0 (40.4.0.1)
+  dst: GW1 (40.6.0.1)
+  received: 302592 bytes (~591 pkts)
+[GW2GW_OBS][PACKET] traceConnected=yes traceRxPkts=591 traceRxBytes=302592 delaySamples=591 avgOneWayDelayMs=0.000 minOneWayDelayMs=0.000 maxOneWayDelayMs=0.000
+  [PASS] received>0, gateway-to-gateway path is active
+======================================
+
+[CHKPT] 120.000s | ApplyRoutingTable: slot=2 HasSignificantChange=YES
+[CHKPT] 120.000s | RecomputeAffectedRoutes: slot=2 recomputed=36/66 wall=2ms
+[CHKPT] 120.000s | ApplyRoutingTable: slot=2 t=120.000s | apply=2ms recompute=2ms recomputedSrc=36
+
+=== E2E Link Observability Final Summary ===
+link                    rx_pkts   rx_bytes     drop_pkts  drop_rate(%)  avg_delay(ms)
+------------------------------------------------------------------------------------
+feeder:sat15            0         0            0          0.00          --
+isl:14-3                43971     43971        0          0.00          --
+isl:15-14               44833     44833        0          0.00          --
+isl:3-4                 44945     44945        0          0.00          --
+------------------------------------------------------------------------------------
+ISL channel propagation delay trace (actual ns-3 scheduled delay)
+  isl:14-3         samples=43971 avg_ms=10.268 min_ms=9.760 max_ms=10.775
+  isl:15-14        samples=44833 avg_ms=13.174 min_ms=13.174 max_ms=13.174
+  isl:3-4          samples=44945 avg_ms=13.173 min_ms=13.173 max_ms=13.173
+  isl:4-5          samples=45103 avg_ms=13.174 min_ms=13.174 max_ms=13.174
+[OBS][FEEDER-DIAG] total OrbiterRxFeeder callbacks (all sats, unscoped): 0
+------------------------------------------------------------------------------------
+Log: e2e_link_obs.csv
+=============================================
+
+
+=== E2E PathType Verdict ===
+pathType=gw2gw_e2e
+[ROUTING_LAYER] PASS | validSlots=3/3 gwSrc=0 gwDst=1 obsFeederMode=PHY
+[FEEDER_LAYER] FAIL | scopedKeys=3 scopedRxPkts=0 avgDelay=--
+[ISL_TRANSIT_LAYER] PASS | scopedLinks=4 scopedRxPkts=178852
+[ISL_PHY_LAYER] PASS | channelDelaySamples=178852 channelAvgDelay=12.46ms  observedHopPropDelay=12.459ms theoreticalHopPropDelay=12.774ms errorMs=0.314 toleranceMs=5.110 slotsWithSamples=2 slotsWithTheory=2
+[PACKET_LAYER] PASS | appInstalled=1 traceConnected=1 traceRxPkts=591 traceRxBytes=302592 delaySamples=591 avgOneWayDelayMs=0.000 observedPacketDelay=0.000ms theoreticalPathDelay=51.899ms note=includes_non_phy_stack_delay reported=1 sinkTotalRxBytes=302592 sinkEstPkts=591
+[SERVICE_LAYER] not_applicable | not part of gw2gw_e2e
+
+=== Real Delay Matrix ===
+gw2gw_e2e status=measured rxPkts=591 appDelaySamples=591 observedPacketAvgDelayMs=0.000 feederAvgDelayMs=0.000 serviceAvgDelayMs=0.000 islPhyChannelAvgDelayMs=12.336 theoreticalTotalDelayMs=51.899 reason=
+[DELAY_WARN] appAvgDelayMs=0.000ms is near-zero while theoreticalTotalDelayMs=51.899ms. Check channelDelaySamples/islChannelAvgDelayMs to confirm whether packets actually crossed delayed ISL channels.
+CSV: real_delay_matrix.csv
+=========================
+
+
+=== IslRoutingManager Stats ===
+slot  simTime   apply(ms)   recompute(ms)   recompSrc       changed     
+0     0.000     0           0               0               NO          
+1     60.000    3           2               29              YES         
+2     120.000   2           2               36              YES         
+==============================
+
+
+=== ISL Load Cost Summary (EMA queue delay) ===
+edgeIdx satA    satB    loadAB(ms)      loadBA(ms)      
+12      6       7       0.0000          0.2218          
+13      6       17      0.0000          0.3839          
+14      7       8       0.2218          0.0000          
+15      7       18      0.2218          0.0000          
+18      9       10      0.0000          0.3921          
+20      0       10      0.0000          0.3921          
+21      10      21      0.3921          0.0000          
+32      16      17      0.0000          0.3839          
+34      17      18      0.3839          0.0000          
+35      17      28      0.3839          0.0000          
+41      20      31      0.0000          0.1704          
+45      22      33      0.0000          0.4088          
+49      24      35      0.0000          0.1704          
+57      28      39      0.0000          0.2218          
+60      30      31      0.0000          0.1704          
+62      31      32      0.1704          0.0000          
+63      31      42      0.1704          0.0000          
+66      33      34      0.4088          0.0000          
+67      33      44      0.4088          0.0000          
+68      34      35      0.0000          0.1704          
+70      35      36      0.1704          0.0000          
+71      35      46      0.1704          0.0000          
+76      38      39      0.0000          0.2218          
+78      39      40      0.2218          0.0000          
+79      39      50      0.2218          0.0000          
+85      42      53      0.0000          0.1789          
+86      33      43      0.4088          0.0000          
+87      43      54      0.0000          0.3839          
+89      44      55      0.0000          0.6244          
+93      46      57      0.0000          0.1581          
+104     52      53      0.0000          0.1789          
+106     53      54      0.1789          0.3839          
+107     53      64      0.1789          0.0000          
+108     44      54      0.0000          0.3839          
+109     54      65      0.3839          0.0000          
+110     55      56      0.6244          0.0000          
+111     0       55      0.0000          0.6244          
+112     56      57      0.0000          0.1581          
+114     57      58      0.1581          0.0000          
+115     2       57      0.0000          0.1581          
+125     7       62      0.2218          0.0000          
+130     55      65      0.6244          0.0000          
+131     10      65      0.3921          0.0000          
+Loaded ISL links: 43 / 132 total ISL edges
+================================================
+
+
+=== ISL Rerouting Summary ===
+slot  t(s)     recomputed  changed   apply_ms
+-----------------------------------------------
+1     60.0     29          YES       3ms
+2     120.0    36          YES       2ms
+-----------------------------------------------
+Total rerouting events: 2 / 3 applied slots
+[RESULT] Load-triggered rerouting occurred; compare [PKT_PATH] and [OBS][SCOPE_UPDATE] lines by slot.
+============================
+
+
+=== ISL Packet Drop Rate Summary ===
+  (all ISLs: 0 drops)
+TOTAL: 11416977 pkts, 0 dropped | drop_rate=0.000% | success_rate=100.000%
+[PASS] overall ISL drop rate < 1.000%
+=====================================
+
+Total wall time: 2316.041 s
+Event count:     0

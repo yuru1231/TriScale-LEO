@@ -99,7 +99,7 @@ class SatBhObc : public Object
 
     /// Set the satellite ID this OBC is attached to
     void SetSatId(uint32_t satId);
-    uint32_t GetSatId() const { return m_satId; }
+    uint32_t GetSatId() const { return m_i; }  ///< Returns i (satellite index)
 
     // ── State query ───────────────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ class SatBhObc : public Object
     // ── State ─────────────────────────────────────────────────────────────
 
     ObcState            m_state;            ///< Current FSM state
-    uint32_t            m_satId;            ///< Satellite this OBC is attached to
+    uint32_t            m_i;                ///< i: satellite index (formal model parameter i)
     Time                m_switchingTime;    ///< T_sw (attr: SwitchingTimeMs)
     Ptr<SatBhTimePlan>  m_activePlan;       ///< Currently executing plan (nullptr if IDLE)
     Ptr<SatBhTimePlan>  m_pendingPlan;      ///< Received but not yet active plan

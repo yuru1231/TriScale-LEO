@@ -33,6 +33,7 @@
 #include "ns3/object.h"
 
 #include <cstdint>
+#include <map>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -42,15 +43,24 @@ namespace ns3
 
 // ── BeamRadiusType ────────────────────────────────────────────────────────
 //
-// Three dynamic beam sizes defined in spec Section 4.2.
-// The gain values correspond to the 3dB beamwidth fed into the SNS3
-// antenna model (non-invasively, via attribute configuration).
+// Five beam pattern sizes, aligned with Layer2.md §4.3 (5-pattern table).
+// Each value maps to a 3dB beamwidth and corresponding antenna gain,
+// fed into the SNS3 antenna model non-invasively via attribute configuration.
+//
+// Index mapping matches SatBeamPatternSelector output (patternIndex 0~4):
+//   XSMALL  → patternIndex 0
+//   SMALL   → patternIndex 1
+//   MIDDLE  → patternIndex 2 (default)
+//   LARGE   → patternIndex 3
+//   XLARGE  → patternIndex 4
 //
 enum class BeamRadiusType : uint8_t
 {
-    SMALL  = 0, ///< 20 km radius, 43.89 dBi gain — hotspot / high-SINR scenario
-    MIDDLE = 1, ///< 40 km radius, 37.89 dBi gain — default general scenario
-    LARGE  = 2, ///< 80 km radius, 31.89 dBi gain — sparse / non-hotspot coverage
+    XSMALL = 0, ///< 1.0° beamwidth, ~10 km radius, 43.89 dBi — hotspot core
+    SMALL  = 1, ///< 1.5° beamwidth, ~15 km radius, 41.39 dBi — high demand
+    MIDDLE = 2, ///< 2.0° beamwidth, ~20 km radius, 37.89 dBi — default
+    LARGE  = 3, ///< 2.5° beamwidth, ~25 km radius, 35.01 dBi — low demand
+    XLARGE = 4, ///< 3.0° beamwidth, ~30 km radius, 31.89 dBi — edge / cold-spot
 };
 
 /// Convert BeamRadiusType to human-readable string (for logging / CSV)
@@ -72,7 +82,7 @@ using ModcodIndex = uint32_t;
 //
 // Direct mapping to spec Section 5.2:
 //   "each slot specifies the set of simultaneously active beams,
-//    beam radius, MODCOD, cluster IDs, start time, and duration."
+//    beam pattern (per-beam), MODCOD, cluster IDs, start time, and duration."
 //
 // Note: startTime is an offset from SatBhTimePlan::m_periodStart,
 // NOT an absolute simulation time.  SatBhObc converts to absolute time
@@ -83,23 +93,44 @@ struct BhSlotEntry
     std::vector<uint32_t> beamIds;    ///< Simultaneously active beams (|beamIds| ≤ K)
     Time                  startTime;  ///< Offset from period start (e.g. slot 0 → 0 ms)
     Time                  duration;   ///< Slot service window (T_s = 26.5 ms by default)
-    BeamRadiusType        beamRadius; ///< Beam radius applied uniformly to all beams this slot
     ModcodIndex           modcod;     ///< DVB-S2X MODCOD index for this slot
     std::vector<uint32_t> clusterIds; ///< Interference cluster ID per beam (one-to-one with beamIds)
 
-    /// Default constructor — sets T_s = 26.5 ms, MIDDLE radius, MODCOD = 0
+    /// Per-beam antenna pattern, keyed by 1-indexed beamId.
+    /// Replaces the former slot-wide beamRadius field (Q2/Q3 decision).
+    /// Set by SatBhScheduler (BuildPlan) or SatBhHelper (BuildStaticBhtp).
+    std::map<uint32_t, BeamRadiusType> beamPatterns;
+
+    /// Scheduled UT IDs for this slot, assigned by SatUserAssociator.
+    /// Empty until SatResourceManager populates it each frame.
+    std::vector<uint32_t> scheduledUtIds;
+
+    /// Power allocation per beam [dBW], assigned by SatPowerAllocator.
+    /// Key = beamId (1-indexed), Value = allocated transmit power in dBW.
+    /// Empty until SatPowerAllocator populates it each frame.
+    std::map<uint32_t, double> allocatedPowerDbw;
+
+    /// Default constructor — sets T_s = 26.5 ms, MODCOD = 0
     BhSlotEntry();
 
     /// Convenience constructor for single-beam slot (common in Phase 2 testing)
     BhSlotEntry(uint32_t beamId, Time start, Time dur,
-                BeamRadiusType radius = BeamRadiusType::MIDDLE,
-                ModcodIndex mc        = 0);
+                BeamRadiusType pattern = BeamRadiusType::MIDDLE,
+                ModcodIndex mc         = 0);
 
     /// End time of this slot (startTime + duration)
     Time GetEndTime() const { return startTime + duration; }
 
     /// Return true if the given beam is active in this slot
     bool ContainsBeam(uint32_t beamId) const;
+
+    /// Set the antenna pattern for a specific beam in this slot.
+    /// beamId is 1-indexed (SNS3 convention).
+    void SetBeamPattern(uint32_t beamId, BeamRadiusType pattern);
+
+    /// Get the antenna pattern for a specific beam (returns defaultVal if not found).
+    BeamRadiusType GetBeamPattern(uint32_t beamId,
+                                  BeamRadiusType defaultVal = BeamRadiusType::MIDDLE) const;
 
     /// Debug pretty-print to any ostream
     void Print(std::ostream& os) const;
@@ -131,6 +162,10 @@ class SatBhTimePlan : public Object
     /// Assign plan ID (called by SatBhScheduler; must be > 0)
     void SetPlanId(uint32_t id);
 
+    /// Assign frame number n (monotonically increasing; set by SatResourceManager)
+    /// Corresponds to parameter n in the formal BH model (n = frame number).
+    void SetFrameN(uint32_t n);
+
     /// Set absolute simulation time bounds for this BHTP period
     void SetPeriodBounds(Time start, Time end);
 
@@ -142,6 +177,7 @@ class SatBhTimePlan : public Object
     // ── Getters ───────────────────────────────────────────────────────────
 
     uint32_t GetPlanId()      const { return m_planId; }
+    uint32_t GetFrameN()      const { return m_n; }       ///< n: frame number (formal model)
     Time     GetPeriodStart() const { return m_periodStart; }
     Time     GetPeriodEnd()   const { return m_periodEnd; }
     uint32_t GetNumSlots()    const { return static_cast<uint32_t>(m_slots.size()); }
@@ -184,6 +220,7 @@ class SatBhTimePlan : public Object
 
   private:
     uint32_t               m_planId;      ///< Monotonic plan ID (0 = unassigned)
+    uint32_t               m_n;           ///< n: frame number, set by SatResourceManager (0 = unassigned)
     Time                   m_periodStart; ///< Absolute simulation start of this period
     Time                   m_periodEnd;   ///< Absolute simulation end of this period
     std::vector<BhSlotEntry> m_slots;     ///< Ordered list of slot entries

@@ -49,14 +49,27 @@
 #include "sat-bh-metrics.h"
 #include "sat-bh-obc.h"
 #include "sat-bh-precoder.h"
+#include "sat-bh-resource-manager.h"
 #include "sat-bh-scheduler.h"
 #include "sat-bh-time-plan.h"
+#include "sat-bh-user-associator.h"
 #include "sat-gw-cache-queue.h"
+#include "sat-l1-routing-interface.h"
+#include "sat-power-allocator.h"
 
+#include "ns3/address.h"
 #include "ns3/nstime.h"
 #include "ns3/object.h"
 
 #include <cstdint>
+#include <map>
+
+// Forward declarations for Phase E/F SNS3 components (full includes in .cc)
+namespace ns3
+{
+class SimulationHelper;
+class SatOrbiterNetDevice;
+}
 
 namespace ns3
 {
@@ -106,6 +119,39 @@ struct BhExperimentConfig
     bool enableCacheQueue{false};   ///< Phase 3: use SatGwCacheQueue
     bool enablePrecoder{false};     ///< Phase 3: use SatBhPrecoder (MMSE)
 
+    // ── Phase C feature flags ─────────────────────────────────────────────
+    bool     enableResourceManager{false};  ///< Phase C: SatResourceManager self-scheduling loop
+    bool     enableUserAssociation{true};   ///< Phase C: run SatUserAssociator each frame
+    bool     enablePatternSelection{false}; ///< Phase C: beam pattern selection (optional, Phase E)
+
+    // ── Phase C scheduling ────────────────────────────────────────────────
+    uint8_t  schedulingMode{0};           ///< 0=WFQ (default), 1=Priority, 2=RoundRobin
+    uint32_t maxReassignmentPerFrame{5};  ///< Max MoveUtBetweenBeams calls per frame
+    double   nominalKbpsPerSlot{50000.0}; ///< Capacity hint per slot [kbps] for WFQ
+    double   maxDelayMs{530.0};           ///< HOL deadline ~1 T_frame for deadline protection
+
+    // ── Phase D feature flags ─────────────────────────────────────────────
+    bool     enablePowerAllocation{false};  ///< Phase D: run SatPowerAllocator each frame
+
+    // ── Phase D power parameters ──────────────────────────────────────────
+    double   totalPowerBudgetDbm{43.0};    ///< Total TX power budget [dBm]
+    double   noisePowerDbw{-126.47};       ///< Thermal noise floor [dBW]
+    uint32_t powerMaxIterations{30};       ///< IWFA max iterations
+    double   powerConvergenceEps{0.001};   ///< IWFA convergence threshold [W]
+    double   interferenceFactor{0.01};     ///< Cross-beam ICI leakage fraction
+
+    // ── Phase E feature flags ─────────────────────────────────────────────
+    // Activates only when enableResourceManager=true AND SetSimulationHelper() called.
+    // Wires MoveUtCallback -> SatNcc::MoveUtBetweenBeams and
+    //       ApplyPowerCallback -> SatOrbiterUserPhy::SetTxMaxPowerDbw + Initialize.
+    bool     enablePhaseE{false};           ///< Phase E: wire callbacks to real SNS3 APIs
+
+    // ── Phase F feature flags ─────────────────────────────────────────────
+    // Activates only when enablePhaseE=true (requires BuildUtAddressMap() called first).
+    // Connects SatBeamScheduler::BacklogRequestsTrace on every beam scheduler and
+    // replaces the synthetic 1000 kbps demand in PollUtStates() with real RBDC values.
+    bool     enablePhaseF{false};           ///< Phase F: wire DAMA demand traces → ResourceManager
+
     // ── Output ────────────────────────────────────────────────────────────
     std::string metricsOutputFile{"bh-metrics.csv"};
     std::string timePlanCsvFile{"bh-timeplan.csv"};
@@ -136,6 +182,11 @@ class SatBhHelper : public Object
     void SetSchedulerEnabled(bool enable);
     void SetObcEnabled(bool enable);
     void SetCacheQueueEnabled(bool enable);
+    void SetResourceManagerEnabled(bool enable); ///< Phase C: enable ResourceManager loop
+
+    /// Provide a SimulationHelper pointer so Phase E can reach SatNcc and
+    /// SatOrbiterNetDevice.  Call before Install() when enablePhaseE=true.
+    void SetSimulationHelper(Ptr<SimulationHelper> simHelper);
 
     // ── Installation ──────────────────────────────────────────────────────
 
@@ -146,19 +197,26 @@ class SatBhHelper : public Object
 
     // ── Module access ──────────────────────────────────────────────────────
 
-    Ptr<SatBhMetrics>     GetMetrics()     const { return m_metrics; }
-    Ptr<SatBhScheduler>   GetScheduler()   const { return m_scheduler; }
-    Ptr<SatBhObc>         GetObc()         const { return m_obc; }
-    Ptr<SatGwCacheQueue>  GetCacheQueue()  const { return m_cacheQueue; }
-    Ptr<SatBhPrecoder>    GetPrecoder()    const { return m_precoder; }
-    Ptr<SatBhTimePlan>    GetCurrentPlan() const;
+    Ptr<SatBhMetrics>          GetMetrics()          const { return m_metrics; }
+    Ptr<SatBhScheduler>        GetScheduler()        const { return m_scheduler; }
+    Ptr<SatBhObc>              GetObc()              const { return m_obc; }
+    Ptr<SatGwCacheQueue>       GetCacheQueue()       const { return m_cacheQueue; }
+    Ptr<SatBhPrecoder>         GetPrecoder()         const { return m_precoder; }
+    Ptr<SatBhTimePlan>         GetCurrentPlan()      const;
+    Ptr<SatResourceManager>    GetResourceManager()  const { return m_resourceManager; }
+    Ptr<SatUserAssociator>     GetUserAssociator()   const { return m_associator; }
+    Ptr<SatL1RoutingInterface> GetL1Interface()      const { return m_l1Interface; }
+
+    /// Register callback fired once per frame after UT association completes.
+    /// Used by SatPowerAllocator (Phase D).
+    void SetFrameConfigCallback(FrameConfigCallback cb);
 
   private:
     // ── Phase 1 bootstrap (always runs) ──────────────────────────────────
 
     /// Build a static BHTP for Phase 1 (no Scheduler yet).
-    /// hotspot beams = beamIds 1..m_numHotspotBeams (SMALL radius)
-    /// non-hotspot   = beamIds (m_numHotspotBeams+1)..m_numBeams (LARGE radius)
+    /// hotspot beams = beamIds 1..m_numHotspotBeams (SMALL radius)   [j=1..J_hotspot]
+    /// non-hotspot   = beamIds (m_numHotspotBeams+1)..J (LARGE radius)  [J = total beams]
     Ptr<SatBhTimePlan> BuildStaticBhtp(Time periodStart);
 
     /// Synthetic metrics driver: simulates one slot's OBC + CacheQueue events.
@@ -188,6 +246,53 @@ class SatBhHelper : public Object
     /// Create SatBhPrecoder, configure attributes.
     void SetupPrecoder();
 
+    // ── Phase C setup ─────────────────────────────────────────────────────
+
+    /// Create SatL1RoutingInterface (stub), SatUserAssociator, SatResourceManager.
+    /// SatResourceManager::Initialize() starts the self-scheduling loop.
+    void SetupPhaseC();
+
+    // ── Phase D setup ─────────────────────────────────────────────────────
+
+    /// Create SatPowerAllocator and wire it into SatResourceManager.
+    /// ApplyPowerCallback left unwired until Phase E (SNS3 hook).
+    /// Must be called after SetupPhaseC() so m_resourceManager exists.
+    void SetupPhaseD();
+
+    // ── Phase E wiring ────────────────────────────────────────────────────
+
+    /// Build m_utAddressMap: maps UT container index (0-based) to MAC Address.
+    /// Must be called after CreateSatScenario() so SatTopology is populated.
+    void BuildUtAddressMap();
+
+    /// Cache the SatOrbiterNetDevice for satellite m_cfg.satId.
+    /// Required by ApplyPowerCallback so it can reach GetUserPhy(beamId).
+    void CacheOrbiterDevice();
+
+    /// Wire Phase E callbacks:
+    ///   1. MoveUtCallback -> SatNcc::MoveUtBetweenBeams  (real handover)
+    ///   2. ApplyPowerCallback -> SatOrbiterUserPhy::SetTxMaxPowerDbw + Initialize
+    ///   3. PollUtStates() scheduling loop (every T_frame)
+    /// Requires m_simHelper, m_associator, m_powerAllocator.
+    void ConnectTracesPhaseE();
+
+    /// Connect SatBeamScheduler::BacklogRequestsTrace on every beam scheduler so that
+    /// real RBDC demand (kbps) is forwarded to OnBacklogRequestTrace() and cached in
+    /// m_utDemandCache.  Must be called after ConnectTracesPhaseE() (which calls
+    /// BuildUtAddressMap() and populates m_satMapperIdToContainerIdx).
+    /// Requires m_simHelper.
+    void ConnectTracesPhaseF();
+
+    /// Callback fired by SatBeamScheduler::BacklogRequestsTrace.
+    /// Parses the record string "time, beamId, satMapperUtId, typeEnum, value" and
+    /// updates m_utDemandCache for DA_RBDC entries only.
+    void OnBacklogRequestTrace(std::string record);
+
+    /// Query SatTopology for UT beam assignments and update ResourceManager state.
+    /// Runs every T_frame.  When Phase F is active, demand is read from
+    /// m_utDemandCache (real RBDC); otherwise falls back to 0.0.
+    void PollUtStates();
+
     // ── SNS3 trace connection (Phase 4, Hook feasibility required) ────────
 
     /// Connect available SNS3 traces to module callbacks.
@@ -204,6 +309,31 @@ class SatBhHelper : public Object
     Ptr<SatBhObc>        m_obc;           ///< Phase 2: created when m_cfg.enableObc
     Ptr<SatGwCacheQueue> m_cacheQueue;    ///< Phase 3: created when m_cfg.enableCacheQueue
     Ptr<SatBhPrecoder>   m_precoder;      ///< Phase 3: created when m_cfg.enablePrecoder
+
+    // Phase C modules
+    Ptr<SatResourceManager>    m_resourceManager; ///< Phase C: self-scheduling 503 ms loop
+    Ptr<SatUserAssociator>     m_associator;      ///< Phase C: WFQ/Priority/RR assignment
+    Ptr<SatL1RoutingInterface> m_l1Interface;     ///< Phase C: ISL path protection (stub)
+    FrameConfigCallback        m_frameConfigCb;   ///< Phase C/D: output sink for BeamConfig
+
+    // Phase D modules
+    Ptr<SatPowerAllocator>     m_powerAllocator;  ///< Phase D: IWFA TX power optimizer
+
+    // Phase E state
+    Ptr<SimulationHelper>           m_simHelper;       ///< Phase E: access to NCC + topology
+    std::map<uint32_t, Address>     m_utAddressMap;    ///< Phase E: UT container idx -> MAC addr
+    Ptr<SatOrbiterNetDevice>        m_orbiterDev;      ///< Phase E: cached orbiter net device
+
+    // Phase F state
+    // UtDemandEntry accumulates per-scheduling-cycle RBDC demand.
+    // lastTimestampS is used to detect a new scheduling cycle (reset vs. sum RCs).
+    struct UtDemandEntry
+    {
+        double totalRbdcKbps{0.0};   ///< sum of RBDC across all RCs in the latest cycle
+        double lastTimestampS{-1.0}; ///< scheduling cycle timestamp (from trace string)
+    };
+    std::map<uint32_t, UtDemandEntry> m_utDemandCache;            ///< Phase F: containerIdx → latest RBDC demand
+    std::map<int32_t,  uint32_t>      m_satMapperIdToContainerIdx; ///< Phase F: SatIdMapper UT ID → container index
 
     uint32_t             m_syntheticSlotIdx; ///< Tracks position in synthetic driver loop
     bool                 m_installed;        ///< True after Install() has been called

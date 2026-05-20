@@ -62,9 +62,9 @@ SatBhObc::GetTypeId()
             .SetParent<Object>()
             .AddConstructor<SatBhObc>()
             .AddAttribute("SatId",
-                          "Satellite node index this OBC is attached to",
+                          "i: satellite index (formal model parameter i)",
                           UintegerValue(0),
-                          MakeUintegerAccessor(&SatBhObc::m_satId),
+                          MakeUintegerAccessor(&SatBhObc::m_i),
                           MakeUintegerChecker<uint32_t>())
             .AddAttribute("SwitchingTimeMs",
                           "T_sw: beam switching dead-time in milliseconds",
@@ -79,7 +79,7 @@ SatBhObc::GetTypeId()
 
 SatBhObc::SatBhObc()
     : m_state(ObcState::IDLE),
-      m_satId(0),
+      m_i(0),
       m_switchingTime(MilliSeconds(2.0)),
       m_currentSlotIdx(-1)
 {
@@ -156,7 +156,7 @@ SatBhObc::SetBeamDeactivateCallback(BeamDeactivateCallback cb)
 void
 SatBhObc::SetSatId(uint32_t satId)
 {
-    m_satId = satId;
+    m_i = satId;
 }
 
 // ── State query ───────────────────────────────────────────────────────────────
@@ -215,13 +215,13 @@ SatBhObc::EnterSlot(int32_t slotIdx)
     NS_LOG_INFO("SatBhObc::EnterSlot slot=" << slotIdx
                 << " beams=" << slot.beamIds.size()
                 << " usable=" << usableDur.GetMilliSeconds() << "ms"
-                << " satId=" << m_satId);
+                << " satId=" << m_i);
 
     // Notify all downstream consumers (Metrics, CacheQueue) that beams are active
     if (m_activateCb)
     {
         for (uint32_t beamId : slot.beamIds)
-            m_activateCb(m_satId, beamId, usableDur);
+            m_activateCb(m_i, beamId, usableDur);
     }
 
     // Schedule the service window end event; OBC transitions to SWITCHING after this
@@ -265,7 +265,7 @@ SatBhObc::OnSlotServiceEnd(int32_t slotIdx)
     if (m_deactivateCb)
     {
         for (uint32_t beamId : slot.beamIds)
-            m_deactivateCb(m_satId, beamId, usedDur);
+            m_deactivateCb(m_i, beamId, usedDur);
     }
 
     // Clear active beam list (beams are inactive during T_sw)
@@ -325,7 +325,7 @@ SatBhObc::OnSwitchingDone(int32_t nextSlotIdx)
         m_state          = ObcState::WAIT_PLAN;
         m_currentSlotIdx = -1;
         m_activeBeams.clear();
-        NS_LOG_INFO("SatBhObc: entering WAIT_PLAN (satId=" << m_satId << ")");
+        NS_LOG_INFO("SatBhObc: entering WAIT_PLAN (satId=" << m_i << ")");
     }
 }
 

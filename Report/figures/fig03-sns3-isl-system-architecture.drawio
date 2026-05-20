@@ -1,0 +1,129 @@
+<mxfile host="65bd71144e">
+    <diagram id="fig03-sns3-isl-system-architecture" name="Page-1">
+        <mxGraphModel dx="2649" dy="2226" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="980" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Figure 3. SNS3 ISL Routing System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#1f2937;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="12" width="720" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="offline" value="Offline Inputs and Topology Basis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf3ff;strokeColor=#6b8fcf;strokeWidth=2;fontStyle=1;fontSize=19;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="460" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="control" value="Routing Control Plane" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ee;strokeColor=#5f8f62;strokeWidth=2;fontStyle=1;fontSize=19;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="60" width="500" height="510" as="geometry"/>
+                </mxCell>
+                <mxCell id="runtime" value="Runtime Data Plane and Observation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff6e8;strokeColor=#c48a2d;strokeWidth=2;fontStyle=1;fontSize=19;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="400" width="460" height="400" as="geometry"/>
+                </mxCell>
+                <mxCell id="outputs" value="Outputs and Validation Artifacts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#64748b;strokeWidth=2;fontStyle=1;fontSize=19;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="610" width="500" height="190" as="geometry"/>
+                </mxCell>
+                <mxCell id="tle" value="TLE set&#xa;66 satellites&#xa;6 planes x 11 sats" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#375a7f;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="90" y="120" width="150" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="isls" value="isls.txt&#xa;132 undirected ISL pairs&#xa;candidate adjacency" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#375a7f;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="200" width="170" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="mobility" value="&lt;font style=&quot;font-size: 12px;&quot;&gt;SatSGP4MobilityModel&lt;br&gt;GetGeoPositionAt(t)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4c7a52;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="610" y="110" width="170" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="graph" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;IslRoutingManager::BuildISLGraph()&lt;br&gt;distance filter + active edges&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4c7a52;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="110" width="190" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="dijkstra" value="Dijkstra per source&#xa;propagation delay primary cost&#xa;EMA queue delay secondary cost" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4c7a52;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="240" width="300" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="tables" value="m_tables[slot]&#xa;precomputed route cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4c7a52;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="695" y="390" width="190" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="arbiter" value="SatIslArbiterUnicast&#xa;next-hop table per satellite" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#d97706;strokeWidth=3;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="500" width="300" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="devices" value="SatOrbiterNetDevice&#xa;PointToPointIslNetDevice&#xa;DropTailQueue&lt;Packet&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b7791f;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="470" width="300" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="traffic" value="test-iridium-e2e.cc&#xa;mode = sat2sat / gw2gw / gw2ut&#xa;background traffic / probes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b7791f;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="620" width="300" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="obs" value="&lt;font style=&quot;font-size: 11px;&quot;&gt;Trace / Observation&lt;br&gt;ISL drop, load, route report&lt;br&gt;PacketSink / OBS scope&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b7791f;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="610" y="660" width="170" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="logs" value="Markdown logs&#xa;route path by slot&#xa;drop summary / loaded links" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;strokeWidth=2;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="810" y="660" width="190" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="caption" value="Control plane computes and applies per-slot ISL routes; data plane forwarding and trace hooks validate the resulting end-to-end behavior." style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#9a3412;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="840" width="920" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=3;" parent="1" source="tle" target="mobility" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=3;" parent="1" source="isls" target="graph" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="895" y="210"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=3;" parent="1" source="mobility" target="graph" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=3;" parent="1" source="graph" target="dijkstra" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="930" y="230"/>
+                            <mxPoint x="800" y="230"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=3;" parent="1" source="dijkstra" target="tables" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#b7791f;strokeWidth=3;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="650" y="530" as="sourcePoint"/>
+                        <mxPoint x="420" y="530" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="650" y="530"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e8" value="traffic enters queues" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#b7791f;strokeWidth=3;fontSize=13;labelBackgroundColor=#fff6e8;" parent="1" source="traffic" target="devices" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9" value="queue delay / drop traces" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#b7791f;strokeWidth=3;fontSize=13;labelBackgroundColor=#fff6e8;" parent="1" target="obs" edge="1">
+                    <mxGeometry x="-0.2728" relative="1" as="geometry">
+                        <mxPoint x="420" y="560.0005882352941" as="sourcePoint"/>
+                        <mxPoint x="630" y="698" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="540" y="561"/>
+                            <mxPoint x="540" y="697"/>
+                        </Array>
+                        <mxPoint x="1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=3;" parent="1" source="obs" target="logs" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e11" value="runtime load update" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;dashed=1;dashPattern=8 8;strokeColor=#16a34a;strokeWidth=3;fontSize=13;labelBackgroundColor=#eef7ee;" parent="1" source="devices" target="dijkstra" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="520" y="500"/>
+                            <mxPoint x="520" y="290"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="3" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#b7791f;strokeWidth=3;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="tables" target="arbiter">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1010" y="500" as="sourcePoint"/>
+                        <mxPoint x="780" y="500" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="790" y="500"/>
+                            <mxPoint x="790" y="500"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

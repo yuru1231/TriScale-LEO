@@ -1,6 +1,7 @@
 #ifndef ISL_GRAPH_H
 #define ISL_GRAPH_H
 
+#include "ns3/node.h"
 #include "ns3/nstime.h"
 #include "ns3/object.h"
 #include "ns3/satellite-isl-arbiter-unicast.h"
@@ -192,6 +193,7 @@ class IslRoutingManager : public Object
     uint32_t GetNumSatellites()    const { return m_numSatellites; }
     double   GetTimeSlotInterval() const { return m_timeSlotInterval; }
     double   GetRouteCost(uint32_t src, uint32_t dst, uint32_t slotIndex) const;
+    const std::vector<SlotStats>& GetSlotStats() const { return m_stats; }
 
     // ── Verification / diagnostics ─────────────────────────────────────────
     //
@@ -225,18 +227,35 @@ class IslRoutingManager : public Object
     //   4. Initialize(...)
     //   5. PrecomputeAllTables()
     //   6. PrecomputeGwRoutes()     ← 必須在 PrecomputeAllTables 之後
-    //   7. PrintGwRouteReport() / GetGwRoute()
+    //   7. RegisterGwNode(...)      ← 可選：註冊 GW 實體 ns-3 Node，用於衛星 IP 路由安裝
+    //   8. PrintGwRouteReport() / GetGwRoute()
 
     void AddGateway(uint32_t gwId, double latDeg, double lonDeg,
                     const std::string& name = "");
     void AddGwPair(uint32_t gwA, uint32_t gwB);
+
+    // RegisterGwNode: 註冊 gwId 對應的 ns-3 Node 指標。
+    // 呼叫後，ApplyRoutingTable 會在每個 slot 為路徑上的中間衛星安裝指向
+    // SatOrbiterNetDevice 的靜態路由（覆蓋 dstGW 的 feeder subnet），使封包
+    // 不會因 IP 層無路由而在中間衛星被丟棄，並能由 arbiter 走 ISL 鏈路繼續傳送。
+    void RegisterGwNode(uint32_t gwId, Ptr<Node> gwNode);
     void SetGwElevationThreshold(double deg);
+    // SetGwFeederSats: restrict entry/exit satellite candidates in PrecomputeGwRoutes()
+    // to the intersection of elevation-visible sats and sats with active feeder beams for gwId.
+    // Must be called before PrecomputeGwRoutes(). gwId is 0-based (matches GetGwNodes() index).
+    void SetGwFeederSats(uint32_t gwId, const std::set<uint32_t>& validSats);
     void PrecomputeGwRoutes();
     GwToGwRoute GetGwRoute(uint32_t srcGwId, uint32_t dstGwId,
                            uint32_t slotIndex) const;
     const std::set<uint32_t>& GetGwVisibleSats(uint32_t gwId,
                                                uint32_t slotIndex) const;
     void PrintGwRouteReport() const;
+
+    // Returns the union of entry and exit satellite IDs actually chosen across all
+    // precomputed slots for the (gwSrc, gwDst) pair and its reverse direction.
+    // Call after PrecomputeGwRoutes(). Used by PredictGw2GwRequiredBeams() to build
+    // the minimal feeder beam set before CreateSatScenario().
+    std::set<uint32_t> GetRequiredGwFeederSats(uint32_t gwSrc, uint32_t gwDst) const;
 
     // ── v7：GW-to-UT 路由 API ─────────────────────────────────────────────
     //
@@ -284,6 +303,13 @@ class IslRoutingManager : public Object
     // 若 PrecomputeGwRoutes / PrecomputeGwUtRoutes 尚未執行，則為 no-op。
     void RefreshGwRoutesForSlot(uint32_t slotIndex);
 
+    // InstallSatIpRoutesForGwPairs: 在 ApplyRoutingTable 末尾呼叫，
+    // 為每個有效 GwToGwRoute 的路徑上所有中間衛星（除 exit sat 外）
+    // 安裝 Ipv4StaticRouting 條目，使 IP 層將 dstGW feeder subnet 的封包
+    // 導向 SatOrbiterNetDevice（由 arbiter 決定後續 ISL 路徑）。
+    // 若 m_gwNodes 為空則為 no-op。
+    void InstallSatIpRoutesForGwPairs(uint32_t slotIndex);
+
     // ── 仰角計算（GW / UT 共用）────────────────────────────────────────────
     // 計算從地面觀測點 (obsLatDeg, obsLonDeg) 到衛星 ECEF 位置的仰角（度）
     static double ComputeElevationDeg(double obsLatDeg, double obsLonDeg,
@@ -326,7 +352,16 @@ class IslRoutingManager : public Object
     std::map<uint32_t, uint32_t>   m_gwIdToIdx;
     std::set<std::pair<uint32_t, uint32_t>> m_gwPairs;
 
+    // m_gwNodes[gwId] = 對應 GW 的 ns-3 Node 指標（由 RegisterGwNode 設定）
+    // 用於 InstallSatIpRoutesForGwPairs 時查詢 dstGW 的 feeder subnet
+    std::map<uint32_t, Ptr<Node>>  m_gwNodes;
+
     double m_gwElevThreshDeg{5.0};  // GW / UT 共用仰角門檻（度）
+
+    // m_gwFeederSats[gwId] = set of satIds that have an active feeder channel to gwId.
+    // Set via SetGwFeederSats() before PrecomputeGwRoutes(). If empty for a given gwId,
+    // no feeder constraint is applied (all elevation-visible sats are candidates).
+    std::map<uint32_t, std::set<uint32_t>> m_gwFeederSats;
 
     // m_gwVisibility[slotIndex][gwId] = set of visible satIds
     std::vector<std::map<uint32_t, std::set<uint32_t>>>              m_gwVisibility;

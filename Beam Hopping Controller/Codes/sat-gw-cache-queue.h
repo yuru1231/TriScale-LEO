@@ -81,7 +81,7 @@ class SatGwCacheQueue : public Object
 
     /// Set the satellite ID this cache queue belongs to
     void SetSatId(uint32_t satId);
-    uint32_t GetSatId() const { return m_satId; }
+    uint32_t GetSatId() const { return m_i; }  ///< Returns i (satellite index)
 
     // ── Packet operations ─────────────────────────────────────────────────
 
@@ -122,7 +122,7 @@ class SatGwCacheQueue : public Object
     void   SetMaxQueueSizeMB(double mb) { m_maxQueueBytesPerBeam = static_cast<uint64_t>(mb * 1.0e6); }
     double GetMaxQueueSizeMB() const    { return static_cast<double>(m_maxQueueBytesPerBeam) / 1.0e6; }
 
-    uint32_t m_satId;               ///< Satellite this queue is attached to
+    uint32_t m_i;                   ///< i: satellite index (formal model parameter i)
     uint64_t m_maxQueueBytesPerBeam;///< Per-beam queue capacity (attr: MaxQueueSizeMB × 1e6)
 
     /// Per-beam FIFO queue: beamId → deque<CacheEntry>

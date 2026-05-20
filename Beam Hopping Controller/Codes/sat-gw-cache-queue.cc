@@ -39,9 +39,9 @@ SatGwCacheQueue::GetTypeId()
             .SetParent<Object>()
             .AddConstructor<SatGwCacheQueue>()
             .AddAttribute("SatId",
-                          "Satellite node index this cache queue belongs to",
+                          "i: satellite index (formal model parameter i)",
                           UintegerValue(0),
-                          MakeUintegerAccessor(&SatGwCacheQueue::m_satId),
+                          MakeUintegerAccessor(&SatGwCacheQueue::m_i),
                           MakeUintegerChecker<uint32_t>())
             .AddAttribute("MaxQueueSizeMB",
                           "Per-beam maximum queue size in MB "
@@ -54,7 +54,7 @@ SatGwCacheQueue::GetTypeId()
 }
 
 SatGwCacheQueue::SatGwCacheQueue()
-    : m_satId(0),
+    : m_i(0),
       m_maxQueueBytesPerBeam(static_cast<uint64_t>(40e6)) // 40 MB default
 {
     NS_LOG_INFO("SatGwCacheQueue: constructed (Phase 3 stub — not yet implemented)");
@@ -65,7 +65,7 @@ SatGwCacheQueue::SatGwCacheQueue()
 void
 SatGwCacheQueue::SetSatId(uint32_t satId)
 {
-    m_satId = satId;
+    m_i = satId;
 }
 
 // ── Packet operations ─────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ SatGwCacheQueue::Enqueue(uint32_t beamId, Ptr<Packet> pkt)
 {
     // TODO Phase 3:
     //   1. Check m_queueBytes[beamId] + pkt->GetSize() ≤ m_maxQueueBytesPerBeam
-    //   2. If overflow: m_dropCb(m_satId, beamId, pkt); return
+    //   2. If overflow: m_dropCb(m_i, beamId, pkt); return
     //   3. Else: m_queues[beamId].push_back({pkt, Simulator::Now()})
     //            m_queueBytes[beamId] += pkt->GetSize()
     NS_LOG_DEBUG("SatGwCacheQueue::Enqueue beam=" << beamId
@@ -89,7 +89,7 @@ SatGwCacheQueue::DequeueAll(uint32_t beamId)
     // TODO Phase 3:
     //   for each CacheEntry in m_queues[beamId]:
     //     double delayMs = (Now() - entry.enqueueTime).GetMilliSeconds()
-    //     m_dequeueCb(m_satId, beamId, entry.pkt, delayMs)
+    //     m_dequeueCb(m_i, beamId, entry.pkt, delayMs)
     //   m_queues[beamId].clear()
     //   m_queueBytes[beamId] = 0
     NS_LOG_DEBUG("SatGwCacheQueue::DequeueAll beam=" << beamId

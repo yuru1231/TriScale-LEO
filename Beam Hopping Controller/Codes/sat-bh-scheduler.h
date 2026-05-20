@@ -19,7 +19,7 @@
  *   E-step : Q(λ|λ_old) = Σ_n Σ_t [ x_n,t × log(λ_n) − λ_n × T_s ]
  *   M-step : λ_n_new = (1 / W×M) × Σ_t x_n,t
  *   Termination: ||λ_new − λ_old||₂ < ε  OR  iterations ≥ EmMaxIterations
- *   d_n = max(1, round(λ_n / Σ λ_n × M × K)); corrected to Σd_n = M×K
+ *   d_n = max(1, round(λ_n / Σ λ_n × F × Kb)); corrected to Σd_n = F×Kb
  *
  * Virtual traffic (spec Section 6.2):
  *   A_{p,j} = L_{p,j} × α × (1 + 1/T_{p,j})
@@ -27,7 +27,7 @@
  *
  * Scheduling strategy (spec Section 6.3):
  *   Phase A: non-hotspot beams (d_n ≤ 25th pct) → LARGE beam, greedy cluster
- *   Phase B: hotspot beams (sorted by A_n) → dynamic radius, K-limited packing
+ *   Phase B: hotspot beams (sorted by A_n) → dynamic radius, Kb-limited packing
  *
  * Cluster grouping (spec Section 6.4):
  *   ω_{i,j} = G_i(θ_{i→j}) / G_j(0°)
@@ -113,7 +113,7 @@ class SatBhScheduler : public Object
     bool RunEM();
 
     /// Convert EM output λ_n to integer slot counts d_n.
-    /// Applies global correction to ensure Σ d_n = M × K.
+    /// Applies global correction to ensure Σ d_n = F × Kb.
     void ComputeSlotAllocation();
 
     // ── Virtual traffic (spec Section 6.2) ───────────────────────────────
@@ -124,7 +124,7 @@ class SatBhScheduler : public Object
     // ── Scheduling (spec Section 6.3) ────────────────────────────────────
 
     /// Build a SatBhTimePlan from d_n and A_n.
-    /// Applies hotspot/non-hotspot split and K-limited slot packing.
+    /// Applies hotspot/non-hotspot split and Kb-limited slot packing.
     Ptr<SatBhTimePlan> BuildPlan(Time periodStart);
 
     // ── Cluster grouping (spec Section 6.4) ──────────────────────────────
@@ -152,8 +152,9 @@ class SatBhScheduler : public Object
 
     // ── State ─────────────────────────────────────────────────────────────
 
-    uint32_t m_numBeams;                ///< Total beam count (attr: NumBeams)
-    uint32_t m_maxActiveBeams;          ///< K: max simultaneous beams (attr: MaxActiveBeams)
+    uint32_t m_J;                       ///< J: total beams per satellite (attr: NumBeams)
+    uint32_t m_Kb;                      ///< Kb: max simultaneous beams per slot (attr: MaxActiveBeams)
+                                        ///<     Note: Kb ≠ spatial K (along-track sat distance)
     Time     m_bhtpPeriod;             ///< T_p (attr: BhtpPeriod)
     Time     m_slotDuration;           ///< T_s (attr: SlotDuration)
     Time     m_propagationDelay;       ///< T_prop (attr: PropagationDelay)
@@ -207,8 +208,9 @@ class SatBhScheduler : public Object
 
     // ── Private Phase 2 helpers ───────────────────────────────────────────
 
-    /// Compute M = round(T_p / T_s) — number of time slots per BHTP period.
-    uint32_t ComputeM() const;
+    /// Compute F = round(T_p / T_s) — number of time slots per frame (BHTP period).
+    /// Corresponds to parameter F in the formal BH model (each frame has F slots).
+    uint32_t ComputeF() const;
 
     /// Pre-compute hexagonal grid beam positions for numBeams beams.
     /// Supports ring-0 (1 beam), ring-1 (7 beams), ring-2 (19 beams).

@@ -1,0 +1,289 @@
+<mxfile host="65bd71144e">
+    <diagram id="fig17-observe-verdict-full-packet-flow" name="Page-1">
+        <mxGraphModel dx="3429" dy="1416" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="1700" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Figure 17. Full Packet Processing Flow with Observe Anchors and Verdict Layers" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=24;fontStyle=1;fontColor=#1f2937;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="20" width="1200" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="noteA" value="This figure adds the full packet path. Packet processing stack and final verdict layers are different dimensions." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#60a5fa;strokeWidth=2;fontSize=15;fontColor=#1e3a8a;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="60" width="1180" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="noteB" value="Blue/green/yellow link segments = native SNS3 topology meaning. Orange panels = custom observation modules. Red panels = custom verdict layers." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#4ade80;strokeWidth=2;fontSize=15;fontColor=#14532d;" parent="1" vertex="1">
+                    <mxGeometry x="1230" y="60" width="1320" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="h0" value="pathType" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;strokeWidth=2;fontStyle=1;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="130" width="140" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="h1" value="Source Endpoint Stack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;strokeWidth=2;fontStyle=1;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="190" y="130" width="220" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="h2" value="Network Segments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;strokeWidth=2;fontStyle=1;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="130" width="820" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="h3" value="Destination Endpoint Stack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;strokeWidth=2;fontStyle=1;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1270" y="130" width="220" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="h4" value="Observe Anchors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=2;fontStyle=1;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1510" y="130" width="470" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="h5" value="Final Verdict Layers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef2f2;strokeColor=#ef4444;strokeWidth=2;fontStyle=1;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="2000" y="130" width="550" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="25" y="190" width="2535" height="210" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fcfcff;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="25" y="410" width="2535" height="210" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="25" y="630" width="2535" height="210" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fcfcff;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="25" y="850" width="2535" height="230" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg5" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="25" y="1090" width="2535" height="230" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend1" value="Endpoint stack: App -&gt; NetDevice -&gt; MAC -&gt; PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1340" width="330" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend2" value="Gray segment = not used in that pathType" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="1340" width="300" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend3" value="Observe anchor = actual trace or callback used for evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="1340" width="420" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend4" value="Verdict layer = reporting layer in PrintE2EFinalVerdict()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1140" y="1340" width="420" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend5" value="Native SNS3 basis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=14;fontColor=#1e3a8a;" parent="1" vertex="1">
+                    <mxGeometry x="1590" y="1340" width="180" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend6" value="Custom observation module" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=2;fontStyle=1;fontSize=14;fontColor=#9a3412;" parent="1" vertex="1">
+                    <mxGeometry x="1790" y="1340" width="220" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend7" value="Custom verdict layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;strokeWidth=2;fontStyle=1;fontSize=14;fontColor=#991b1b;" parent="1" vertex="1">
+                    <mxGeometry x="2030" y="1340" width="210" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend8" value="Hybrid row: native trace + custom scope/verdict mapping" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#9333ea;strokeWidth=2;fontStyle=1;fontSize=14;fontColor=#581c87;" parent="1" vertex="1">
+                    <mxGeometry x="2260" y="1340" width="290" height="38" as="geometry"/>
+                </mxCell>
+                <mxCell id="pt1" value="sat2sat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=18;" parent="1" vertex="1">
+                    <mxGeometry x="35" y="270" width="130" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1" value="SAT src&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2ff;strokeColor=#6366f1;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="210" y="225" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg1a" value="uplink out of source SAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e5e7eb;strokeColor=#94a3b8;strokeWidth=2;fontSize=14;fontColor=#475569;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="260" width="150" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg1b" value="ISL transit&#xa;SAT -&gt; SAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="260" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg1c" value="delivery into destination SAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e5e7eb;strokeColor=#94a3b8;strokeWidth=2;fontSize=14;fontColor=#475569;" parent="1" vertex="1">
+                    <mxGeometry x="850" y="260" width="170" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg1d" value="no feeder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;strokeWidth=2;fontSize=14;fontColor=#94a3b8;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="260" width="150" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="d1" value="SAT dst&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2ff;strokeColor=#6366f1;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1290" y="225" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="obs1" value="[Custom ISL Observation Module]&#xa;Native basis: IslObsCb + PacketDropRateTrace&#xa;Custom mapping: scoped ISL keys from ObsScope" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=2;fontSize=15;fontColor=#9a3412;" parent="1" vertex="1">
+                    <mxGeometry x="1530" y="235" width="430" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ver1" value="[Custom Verdict Layer] ISL_LAYER&#xa;pass if scoped ISL links exist and rxPkts &gt; 0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;strokeWidth=2;fontStyle=1;fontSize=16;fontColor=#991b1b;" parent="1" vertex="1">
+                    <mxGeometry x="2020" y="245" width="500" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="pt2" value="sat2gw" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontStyle=1;fontSize=18;" parent="1" vertex="1">
+                    <mxGeometry x="35" y="490" width="130" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2" value="SAT src&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2ff;strokeColor=#6366f1;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="210" y="445" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg2a" value="return feeder&#xa;SAT -&gt; GW" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="480" width="190" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg2b" value="no ISL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;strokeWidth=2;fontSize=14;fontColor=#94a3b8;" parent="1" vertex="1">
+                    <mxGeometry x="740" y="480" width="100" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg2c" value="no service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;strokeWidth=2;fontSize=14;fontColor=#94a3b8;" parent="1" vertex="1">
+                    <mxGeometry x="880" y="480" width="110" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg2d" value="GW physical receive" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1050" y="480" width="150" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="d2" value="GW dst&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfdf5;strokeColor=#10b981;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1290" y="445" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="obs2" value="[Custom Feeder Observation Module]&#xa;Native basis: GatewayRxFeederCb&#xa;Native trace: GW-side feeder Rx counter&#xa;Optional native endpoint diagnostics on GW side" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=2;fontSize=15;fontColor=#9a3412;" parent="1" vertex="1">
+                    <mxGeometry x="1530" y="455" width="430" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ver2" value="[Custom Verdict Layer] FEEDER_LAYER&#xa;pass if scoped feeder rxPkts &gt; 0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;strokeWidth=2;fontStyle=1;fontSize=16;fontColor=#991b1b;" parent="1" vertex="1">
+                    <mxGeometry x="2020" y="465" width="500" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="pt3" value="sat2ut" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=2;fontStyle=1;fontSize=18;" parent="1" vertex="1">
+                    <mxGeometry x="35" y="710" width="130" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" value="SAT src&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2ff;strokeColor=#6366f1;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="210" y="665" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg3a" value="no feeder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;strokeWidth=2;fontSize=14;fontColor=#94a3b8;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="700" width="150" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg3b" value="service downlink&#xa;SAT -&gt; UT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="700" width="190" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg3c" value="UT physical receive" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="700" width="170" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg3d" value="endpoint probe chain&#xa;PHY -&gt; MAC -&gt; NetDevice -&gt; App" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1100" y="690" width="160" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3" value="UT dst&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1290" y="665" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="obs3" value="[Custom Service Observation Module]&#xa;Native basis: UtRxServiceCb&#xa;Custom diagnosis: endpoint probe interprets PHY, MAC, NetDevice, or App stop point" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;strokeWidth=2;fontSize=15;fontColor=#9a3412;" parent="1" vertex="1">
+                    <mxGeometry x="1530" y="675" width="430" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ver3" value="[Custom Verdict Layer] SERVICE_LAYER&#xa;main rule for sat2ut: utRxPkts &gt; 0&#xa;Endpoint probe is diagnosis support, not a separate verdict layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;strokeWidth=2;fontStyle=1;fontSize=16;fontColor=#991b1b;" parent="1" vertex="1">
+                    <mxGeometry x="2020" y="675" width="500" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="pt4" value="gw2ut_e2e" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;strokeWidth=2;fontStyle=1;fontSize=18;" parent="1" vertex="1">
+                    <mxGeometry x="35" y="945" width="130" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4" value="GW src&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfdf5;strokeColor=#10b981;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="210" y="895" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg4a" value="entry feeder&#xa;GW -&gt; SAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="930" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg4b" value="optional ISL transit&#xa;if route has hop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=2;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="930" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg4c" value="service downlink&#xa;SAT -&gt; UT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="870" y="930" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg4d" value="UT endpoint probe chain&#xa;PHY -&gt; MAC -&gt; NetDevice -&gt; App" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;strokeWidth=2;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1090" y="920" width="170" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="d4" value="UT dst&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1290" y="895" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="obs4" value="[Hybrid Observation Modules]&#xa;Custom feeder module uses native OrbiterRxFeederCb&#xa;Custom service module uses native UtRxServiceCb&#xa;Custom endpoint probe explains device/app visibility at UT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#9333ea;strokeWidth=2;fontSize=15;fontColor=#581c87;" parent="1" vertex="1">
+                    <mxGeometry x="1530" y="900" width="430" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="ver4" value="[Custom Verdict Mapping]&#xa;FEEDER_LAYER + SERVICE_LAYER&#xa;and ISL_LAYER only when route actually has ISL hop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#9333ea;strokeWidth=2;fontStyle=1;fontSize=16;fontColor=#581c87;" parent="1" vertex="1">
+                    <mxGeometry x="2020" y="905" width="500" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="pt5" value="gw2gw_e2e" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;strokeWidth=2;fontStyle=1;fontSize=18;" parent="1" vertex="1">
+                    <mxGeometry x="35" y="1185" width="130" height="46" as="geometry"/>
+                </mxCell>
+                <mxCell id="s5" value="GW src&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfdf5;strokeColor=#10b981;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="210" y="1135" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg5a" value="entry feeder&#xa;GW -&gt; SAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="1170" width="170" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg5b" value="ISL backbone&#xa;SAT -&gt; ... -&gt; SAT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="1170" width="210" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg5c" value="exit feeder&#xa;SAT -&gt; GW" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="890" y="1170" width="170" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="seg5d" value="GW dst user sink&#xa;PacketSink::Rx" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fecaca;strokeColor=#ef4444;strokeWidth=2;fontStyle=1;fontSize=15;" parent="1" vertex="1">
+                    <mxGeometry x="1100" y="1170" width="160" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="d5" value="GW dst&#xa;App&#xa;NetDevice&#xa;MAC&#xa;PHY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfdf5;strokeColor=#10b981;strokeWidth=2;fontSize=15;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1290" y="1135" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="obs5" value="[Hybrid Observation Modules]&#xa;Custom routing/ISL observation uses native routing manager validity + native ISL traces&#xa;Custom packet observation uses native PacketSink::Rx on GW dst user" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#9333ea;strokeWidth=2;fontSize=15;fontColor=#581c87;" parent="1" vertex="1">
+                    <mxGeometry x="1530" y="1140" width="430" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="ver5" value="[Custom Verdict Mapping]&#xa;ROUTING_LAYER + ISL_LAYER + PACKET_LAYER&#xa;Important: feeder segments exist in the packet path, but feeder PHY counters are intentionally not the main verdict source here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#9333ea;strokeWidth=2;fontStyle=1;fontSize=16;fontColor=#581c87;" parent="1" vertex="1">
+                    <mxGeometry x="2020" y="1140" width="500" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="s1" target="seg1a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg1a" target="seg1b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg1b" target="seg1c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg1c" target="seg1d" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg1d" target="d1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="s2" target="seg2a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg2a" target="seg2b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg2b" target="seg2c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg2c" target="seg2d" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg2d" target="d2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="s3" target="seg3a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg3a" target="seg3b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg3b" target="seg3c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e14" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg3c" target="seg3d" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg3d" target="d3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="s4" target="seg4a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg4a" target="seg4b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e18" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg4b" target="seg4c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e19" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg4c" target="seg4d" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e20" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg4d" target="d4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e21" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="s5" target="seg5a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e22" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg5a" target="seg5b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e23" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg5b" target="seg5c" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e24" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg5c" target="seg5d" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e25" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;" parent="1" source="seg5d" target="d5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="foot" value="Code anchors in Topology &amp; ISL Routing/Codes/test-iridium-e2e.cc: ConnectLinkObserverTraces(), UpdateObsScopeForSlot(), InterpretEndpointTarget(), PrintE2EFinalVerdict()" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontColor=#475569;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1410" width="1800" height="24" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -1,0 +1,301 @@
+Consolidate compiler generated dependencies of target scratch_test-iridium
+[CFG] pathType=gw2gw_e2e obsFeederMode=ROUTING regenerationMode=network simTime=180 slotInterval=60 numSlots=4 lastSlotTime=180
+[TOPO_BOOTSTRAP] enabledBeams={1,2,72} gatewayPresets=5 primaryBeamId=72
+[TOPO] physicalGwNodes=2 utUserNodes=91
+[TOPO] logicalGwId=0 physicalGwNode=present
+[TOPO] logicalGwId=1 physicalGwNode=present
+[ISL_DROP] trace connected: 264 ISL interfaces (132 unique links)
+[OBS] log opened: e2e_link_obs.csv
+[OBS] build=2026-04-17-fullobs-v1 feederSource=none
+[OBS] traces connected:  feeder=0  service=66  isl=264
+[OBS] snapshot interval=10s  dropAlertThresh=50%
+[RBDC] trace skipped (rbdcVerbose=0, use --rbdcVerbose=1 to enable)
+[CHKPT] 0s | Initialize: start
+[CHKPT] 0s | LoadISLDefs: start | path=/home/wenj/workspace/ns-3.43/contrib/satellite/data/scenarios/constellation-iridium-66-sats-fixed/positions/isls.txt
+[CHKPT] 0s | LoadISLDefs: done | loaded=132 ISLs
+[CHKPT] 0s | InitOrbiterDevices: start
+[CHKPT] 0s | InitOrbiterDevices: done | satellites=66
+[CHKPT] 0s | Initialize: done | satellites=66 isls=132
+[CHKPT] 0s | PrecomputeAllTables: start | slots=4
+[CHKPT] PrecomputeAllTables: slot=0 t=0s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=1 t=60s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=2 t=120s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] PrecomputeAllTables: slot=3 t=180s | SAT0_routes=65 dijkstra=0ms total=0ms
+[CHKPT] 0s | PrecomputeAllTables: complete | wall=2ms
+
+[CASE] gw2gw_e2e | gwSrc=0 gwDst=1
+[CHKPT] 0s | PrecomputeGwRoutes: start | gws=2 pairs=1 slots=4
+[GwRouting] slot=0 t=0s GW0[JP-Tokyo]=2sats GW1[IN-NewDelhi]=2sats
+[GwRouting] slot=1 t=60s GW0[JP-Tokyo]=2sats GW1[IN-NewDelhi]=3sats
+[GwRouting] slot=2 t=120s GW0[JP-Tokyo]=2sats GW1[IN-NewDelhi]=3sats
+[GwRouting] slot=3 t=180s GW0[JP-Tokyo]=3sats GW1[IN-NewDelhi]=2sats
+[CHKPT] 0s | PrecomputeGwRoutes: done | wall=0ms
+
+=== GW-to-GW Route Report (v6) ===
+
+  [JP-Tokyo → IN-NewDelhi]
+slot  time(s)   entry   ISL_path                                          exit    isl_cost(s)     
+--------------------------------------------------------------------------------------------------
+0     0         45      45->46->35->34->33                                33      0.047382        
+1     60        15      15->14->3->4                                      4       0.037122          <-- ROUTE CHANGED
+2     120       45      45->34->33                                        33      0.029282          <-- ROUTE CHANGED
+3     180       14      14->3->4                                          4       0.026127          <-- ROUTE CHANGED
+
+  [IN-NewDelhi → JP-Tokyo]
+slot  time(s)   entry   ISL_path                                          exit    isl_cost(s)     
+--------------------------------------------------------------------------------------------------
+0     0         33      33->34->35->46->45                                45      0.047382        
+1     60        4       4->3->14->15                                      15      0.037122          <-- ROUTE CHANGED
+2     120       33      33->34->45                                        45      0.029282          <-- ROUTE CHANGED
+3     180       4       4->3->14                                          14      0.026127          <-- ROUTE CHANGED
+
+===================================
+
+[GW2GW_OBS][ROUTING_ISL] scopedIslLinks=16 gwSrc=0 gwDst=1
+[OBS] scope: feeder=0 service=0 isl=16
+[OBS] verdict_scope: feeder=0 service=0 isl=16
+
+=== Packet Path Trace (planned forwarding path) ===
+pathType=gw2gw_e2e trafficUtUserId=0
+[PKT_PATH] slot=0 t=0.0s GW0 -> feeder_up:sat45 -> isl:sat45->sat46->sat35->sat34->sat33 -> feeder_down:GW1 obs_isl_keys=45-46|46-35|35-34|34-33
+[PKT_PATH] slot=1 t=60.0s GW0 -> feeder_up:sat15 -> isl:sat15->sat14->sat3->sat4 -> feeder_down:GW1 obs_isl_keys=15-14|14-3|3-4
+[PKT_PATH] slot=2 t=120.0s GW0 -> feeder_up:sat45 -> isl:sat45->sat34->sat33 -> feeder_down:GW1 obs_isl_keys=45-34|34-33
+[PKT_PATH] slot=3 t=180.0s GW0 -> feeder_up:sat14 -> isl:sat14->sat3->sat4 -> feeder_down:GW1 obs_isl_keys=14-3|3-4
+=================================================
+
+
+=== Propagation Delay Audit ===
+[PROP] ISL routing cost uses dist/c. PointToPointIslChannel also computes distance/PropagationSpeed at packet transmit time; PropagationDelayTrace verifies the actual scheduled channel delay.
+[PROP][ISL_HOP] slot=0 sat45->sat46 dist_km=3952.17 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=0 sat46->sat35 dist_km=2358.35 theory_ms=7.861 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=0 sat35->sat34 dist_km=3952.00 theory_ms=13.173 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=0 sat34->sat33 dist_km=3952.18 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=0 feeder_ms=8.038 isl_ms=47.382 service_ms=-1.000 total_theory_ms=55.420
+[PROP][ISL_HOP] slot=1 sat15->sat14 dist_km=3952.18 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=1 sat14->sat3 dist_km=3232.49 theory_ms=10.775 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=1 sat3->sat4 dist_km=3952.04 theory_ms=13.173 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=1 feeder_ms=10.198 isl_ms=37.122 service_ms=-1.000 total_theory_ms=47.321
+[PROP][ISL_HOP] slot=2 sat45->sat34 dist_km=4832.32 theory_ms=16.108 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=2 sat34->sat33 dist_km=3952.21 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=2 feeder_ms=6.015 isl_ms=29.282 service_ms=-1.000 total_theory_ms=35.297
+[PROP][ISL_HOP] slot=3 sat14->sat3 dist_km=3885.90 theory_ms=12.953 ns3_channel_ms=applied_on_transmit
+[PROP][ISL_HOP] slot=3 sat3->sat4 dist_km=3952.13 theory_ms=13.174 ns3_channel_ms=applied_on_transmit
+[PROP][TOTAL] slot=3 feeder_ms=11.723 isl_ms=26.127 service_ms=-1.000 total_theory_ms=37.850
+===============================
+
+
+[E2E] pathType=gw2gw_e2e includesIsl=yes regenerationMode=network segments={feederlink=on, isl=on, servicelink=off} traffic=gw2gw_application logicalUtId=0 trafficUtUserId=0
+[E2E][feederlink] enabled
+[GW] physical GW0 routable IP=40.1.0.1 ifIndex=1
+[GW] physical GW1 routable IP=40.67.0.1 ifIndex=1
+[GW2GW_APP] GW0=40.1.0.1 -> GW1=40.67.0.1 start=1.000s stop=179.000s
+[GW2GW_OBS][PACKET] PacketSink::Rx trace connected on GW1 (physical)
+[GW2GW_APP] tagged UDP sender interval=100ms pktSize=512B rate~40.960 kbps
+[E2E][isl] enabled
+[E2E][isl] routing/transit enabled without extra ISL-only load generator
+[E2E][servicelink] disabled
+[CHKPT] 0.000s | ScheduleRoutingUpdates: 4 events scheduled
+[CHKPT] 0.000s | ApplyRoutingTable: slot=0 t=0.000s | apply=0ms recompute=0ms recomputedSrc=0
+[CHKPT] 60.000s | ApplyRoutingTable: slot=1 HasSignificantChange=YES
+[CHKPT] 60.000s | RecomputeAffectedRoutes: slot=1 recomputed=16/66 wall=0ms
+[CHKPT] 60.000s | ApplyRoutingTable: slot=1 t=60.000s | apply=1ms recompute=0ms recomputedSrc=16
+[OBS][SCOPE_UPDATE] slot=1 feeder=0 service=0 isl=6
+[CHKPT] 120.000s | ApplyRoutingTable: slot=2 HasSignificantChange=YES
+[CHKPT] 120.000s | RecomputeAffectedRoutes: slot=2 recomputed=22/66 wall=1ms
+[CHKPT] 120.000s | ApplyRoutingTable: slot=2 t=120.000s | apply=2ms recompute=1ms recomputedSrc=22
+[OBS][SCOPE_UPDATE] slot=2 feeder=0 service=0 isl=4
+
+[GW2GW_APP] === Packet-layer delivery summary ===
+  src: GW0 (40.1.0.1)
+  dst: GW1 (40.67.0.1)
+  received: 911872 bytes (~1781 pkts)
+[GW2GW_OBS][PACKET] traceConnected=yes traceRxPkts=1781 traceRxBytes=911872 delaySamples=1781 avgOneWayDelayMs=0.012 minOneWayDelayMs=0.000 maxOneWayDelayMs=12.000
+  [PASS] received>0, gateway-to-gateway path is active
+======================================
+
+[CHKPT] 180.000s | ApplyRoutingTable: slot=3 HasSignificantChange=YES
+[CHKPT] 180.000s | RecomputeAffectedRoutes: slot=3 recomputed=22/66 wall=1ms
+[CHKPT] 180.000s | ApplyRoutingTable: slot=3 t=180.000s | apply=2ms recompute=1ms recomputedSrc=22
+
+=== E2E Link Observability Final Summary ===
+link                    rx_pkts   rx_bytes     drop_pkts  drop_rate(%)  avg_delay(ms)
+------------------------------------------------------------------------------------
+isl:33-34               47850     47850        0          0.00          --
+isl:34-33               46767     46767        0          0.00          --
+isl:34-45               46767     46767        0          0.00          --
+isl:45-34               46767     46767        0          0.00          --
+------------------------------------------------------------------------------------
+ISL channel propagation delay trace (actual ns-3 scheduled delay)
+  isl:14-15        samples=46772 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:14-3         samples=49547 avg_ms=9.994 min_ms=9.000 max_ms=11.000
+  isl:15-14        samples=49544 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:3-14         samples=46770 avg_ms=10.001 min_ms=9.000 max_ms=11.000
+  isl:3-4          samples=56091 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:33-34        samples=47850 avg_ms=13.000 min_ms=11.000 max_ms=13.000
+  isl:34-33        samples=46767 avg_ms=13.000 min_ms=11.000 max_ms=13.000
+  isl:34-35        samples=47854 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:34-45        samples=46767 avg_ms=16.999 min_ms=16.000 max_ms=18.000
+  isl:35-34        samples=46770 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:35-46        samples=47857 avg_ms=5.999 min_ms=5.000 max_ms=7.000
+  isl:4-3          samples=46768 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:45-34        samples=46767 avg_ms=16.999 min_ms=16.000 max_ms=18.000
+  isl:45-46        samples=46767 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+  isl:46-35        samples=46771 avg_ms=5.999 min_ms=5.000 max_ms=7.000
+  isl:46-45        samples=46771 avg_ms=13.000 min_ms=13.000 max_ms=13.000
+[OBS][FEEDER-DIAG] total OrbiterRxFeeder callbacks (all sats, unscoped): 0
+------------------------------------------------------------------------------------
+Log: e2e_link_obs.csv
+=============================================
+
+
+=== E2E PathType Verdict ===
+pathType=gw2gw_e2e
+[ROUTING_LAYER] PASS | validSlots=4/4 gwSrc=0 gwDst=1 obsFeederMode=ROUTING
+[ISL_LAYER] PASS | scopedLinks=16 scopedRxPkts=766433 channelDelaySamples=766433 channelAvgDelay=12.25ms
+[PACKET_LAYER] PASS | appInstalled=1 traceConnected=1 traceRxPkts=1781 traceRxBytes=911872 delaySamples=1781 avgOneWayDelayMs=0.012 reported=1 sinkTotalRxBytes=911872 sinkEstPkts=1781
+
+=== Real Delay Matrix ===
+gw2gw_e2e status=measured rxPkts=1781 appDelaySamples=1781 appAvgDelayMs=0.012 feederAvgDelayMs=0.000 serviceAvgDelayMs=0.000 islChannelAvgDelayMs=12.246 theoreticalTotalDelayMs=55.420 reason=
+[DELAY_WARN] appAvgDelayMs=0.012ms is near-zero while theoreticalTotalDelayMs=55.420ms. Check channelDelaySamples/islChannelAvgDelayMs to confirm whether packets actually crossed delayed ISL channels.
+CSV: real_delay_matrix.csv
+=========================
+
+
+=== IslRoutingManager Stats ===
+slot  simTime   apply(ms)   recompute(ms)   recompSrc       changed     
+0     0.000     0           0               0               NO          
+1     60.000    1           0               16              YES         
+2     120.000   2           1               22              YES         
+3     180.000   2           1               22              YES         
+==============================
+
+
+=== ISL Load Cost Summary (EMA queue delay) ===
+edgeIdx satA    satB    loadAB(ms)      loadBA(ms)      
+16      8       9       0.0000          0.1318          
+18      9       10      0.1318          0.0000          
+19      9       20      0.1318          0.0000          
+45      22      33      0.0000          0.4451          
+66      33      34      0.4451          0.0000          
+67      33      44      0.4451          0.0000          
+75      37      48      0.0000          0.1581          
+83      41      52      0.0000          0.1318          
+86      33      43      0.4451          0.0000          
+89      44      55      0.0000          0.3340          
+94      47      48      0.0000          0.1581          
+96      48      49      0.1581          0.0000          
+97      48      59      0.1581          0.0000          
+102     51      52      0.0000          0.1318          
+103     51      62      0.0000          0.1581          
+104     52      53      0.1318          0.0000          
+105     52      63      0.1318          0.0000          
+110     55      56      0.3340          0.0000          
+111     0       55      0.0000          0.3340          
+122     61      62      0.0000          0.1581          
+124     62      63      0.1581          0.0000          
+125     7       62      0.0000          0.1581          
+129     9       64      0.1318          0.0000          
+130     55      65      0.3340          0.0000          
+Loaded ISL links: 24 / 132 total ISL edges
+================================================
+
+
+=== ISL Rerouting Summary ===
+slot  t(s)     recomputed  changed   apply_ms
+-----------------------------------------------
+1     60.0     16          YES       1ms
+2     120.0    22          YES       2ms
+3     180.0    22          YES       2ms
+-----------------------------------------------
+Total rerouting events: 3 / 4 applied slots
+[RESULT] Load-triggered rerouting occurred; compare [PKT_PATH] and [OBS][SCOPE_UPDATE] lines by slot.
+============================
+
+
+=== ISL Packet Drop Rate Summary ===
+  (all ISLs: 0 drops)
+TOTAL: 12402676 pkts, 0 dropped | drop_rate=0.000% | success_rate=100.000%
+[PASS] overall ISL drop rate < 1.000%
+=====================================
+
+Total wall time: 2943.434 s
+Event count:     0
+
+
+# ============================================================
+# Run Command & Configuration Reference
+# ============================================================
+#
+# Command:
+#   ./ns3 run "scratch/test-iridium \
+#     --pathType=gw2gw_e2e \
+#     --simTime=180 \
+#     --slotInterval=60" \
+#     2>&1 | tee e2e/fix/gw2gw_short.log
+#
+# ------------------------------------------------------------
+# Parameter Details
+# ------------------------------------------------------------
+#
+# --pathType=gw2gw_e2e
+#   路徑類型：Gateway-to-Gateway 端到端
+#   啟用 feeder link（GW→衛星上行）+ ISL（衛星間）+ feeder link（衛星→GW下行）
+#   不啟用 service link（衛星→UT）
+#   traffic：GW0(JP-Tokyo) → GW1(IN-NewDelhi) 應用層 tagged UDP
+#   GW 節點：physical GW node（40.x.x.x），不使用 user node（gwMode 已全面移除）
+#
+# --simTime=180
+#   模擬總時長 180 秒
+#   對應 numSlots=4（slot 0=0s, 1=60s, 2=120s, 3=180s）
+#   CBR background traffic：1.0s → 179.0s
+#   GW2GW application traffic：1.0s → 179.0s
+#   選用 180s 理由：足夠覆蓋 3 次 slot 切換（3 個 ROUTE CHANGED 機會），
+#                   比 630s 快 ~15x，適合快速驗證路由行為
+#
+# --slotInterval=60
+#   每 60 秒重新計算一次 routing table
+#   numSlots = floor(simTime / slotInterval) + 1
+#            = floor(180 / 60) + 1 = 4
+#   影響：IslRoutingManager 在 t=0, 60, 120, 180 各套用一次路由表
+#         每次 HasSignificantChange=YES 會觸發 partial Dijkstra recompute
+#
+# ------------------------------------------------------------
+# 未指定參數（使用預設值）
+# ------------------------------------------------------------
+#
+# --gwSrc=0           GW 來源 preset ID=0（JP-Tokyo，lat=35.68, lon=139.69）
+# --gwDst=1           GW 目的 preset ID=1（IN-NewDelhi，lat=28.61, lon=77.21）
+# --beamId=72         主 SNS3 beam ID，GW bootstrap beams 自動依 needsGwPair 補充
+#                     gw2gw 需要 2 個 GW → enabledBeams={1,2,72}
+# --islMaxDistKm=5000 ISL 啟用距離門檻：兩顆衛星距離 ≤5000km 才建立 ISL link
+#                     Iridium-66 正常 ISL 約 3900–4800km，此設定涵蓋所有正常連線
+# --islRateMbps=10.0  每條 ISL 鏈路頻寬 10 Mbps
+# --emaAlpha=0.3      EMA 平滑係數：load-adaptive routing 的 queue delay 平滑權重
+#                     alpha=0.3 → 新值佔 30%，歷史值佔 70%，避免抖動
+# --changeThresh=0.1  cost 變化超過 10% 才觸發 partial Dijkstra recompute
+# --cooldownRatio=0.5 cooldown = slotInterval × 0.5 = 30s，防止路由震盪
+# --elevMinDeg=5.0    GW/UT 仰角最低門檻 5 度，仰角不足的衛星不列為 GW entry sat
+# --regenerationMode=network
+#                     衛星以 network regeneration 模式運作（L3 IP 轉發），
+#                     封包在衛星上解包再重新封裝後轉發，非透明轉發
+# --islDropThreshPct=1.0
+#                     整體 ISL drop rate < 1% → PASS；≥1% → FAIL
+#
+# ------------------------------------------------------------
+# 輸出重導向
+# ------------------------------------------------------------
+#
+# 2>&1              stderr 合併進 stdout（NS-3 abort / 警告訊息一併捕捉）
+# tee gw2gw.log     同時輸出到終端機並寫入 log 檔（每次執行覆寫）
+#
+# ------------------------------------------------------------
+# 此指令驗證範圍
+# ------------------------------------------------------------
+#
+# [FEEDER_LAYER]   GW → 衛星 feeder link 上行 / 下行
+#                  verdict 目前受 OrbiterRxFeeder callback=0 影響，待查
+# [ISL_LAYER]      衛星間 ISL 封包傳輸，drop rate < 1% → PASS
+# [SERVICE_LAYER]  不啟用（gw2gw_e2e 無 UT service link）
+# [ENDPOINT_PROBE] PacketSink 安裝在 physical GW1（40.67.0.1），
+#                  確認封包確實送達目的 GW 的應用層
+# ============================================================

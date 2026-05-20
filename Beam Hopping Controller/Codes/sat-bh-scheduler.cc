@@ -53,14 +53,14 @@ SatBhScheduler::GetTypeId()
             .AddConstructor<SatBhScheduler>()
             // ── Attributes from spec Section 7.1 ────────────────────────
             .AddAttribute("NumBeams",
-                          "Total number of beams managed by this scheduler",
+                          "J: total beams per satellite (formal model parameter J)",
                           UintegerValue(19),
-                          MakeUintegerAccessor(&SatBhScheduler::m_numBeams),
+                          MakeUintegerAccessor(&SatBhScheduler::m_J),
                           MakeUintegerChecker<uint32_t>(1, 1000))
             .AddAttribute("MaxActiveBeams",
-                          "K: maximum simultaneously active beams per slot",
+                          "Kb: max simultaneously active beams per slot (Kb ≠ spatial K)",
                           UintegerValue(3),
-                          MakeUintegerAccessor(&SatBhScheduler::m_maxActiveBeams),
+                          MakeUintegerAccessor(&SatBhScheduler::m_Kb),
                           MakeUintegerChecker<uint32_t>(1, 10))
             .AddAttribute("BhtpPeriodMs",
                           "T_p: BHTP period in milliseconds",
@@ -119,8 +119,8 @@ SatBhScheduler::GetTypeId()
 }
 
 SatBhScheduler::SatBhScheduler()
-    : m_numBeams(19),
-      m_maxActiveBeams(3),
+    : m_J(19),
+      m_Kb(3),
       m_bhtpPeriod(MilliSeconds(503.0)),
       m_slotDuration(MilliSeconds(26.5)),
       m_propagationDelay(MilliSeconds(10.0)),
@@ -139,9 +139,11 @@ SatBhScheduler::SatBhScheduler()
 // ── Private helpers ──────────────────────────────────────────────────────────
 
 uint32_t
-SatBhScheduler::ComputeM() const
+SatBhScheduler::ComputeF() const
 {
-    // M = number of BH time slots per BHTP period = round(T_p / T_s)
+    // F = number of BH time slots per frame (BHTP period) = round(T_p / T_s)
+    // Formal model: each frame n has F slots; scheduling assigns i-th sat,
+    // j-th beam, f-th slot to serve u-th user in grid a_{L,W}.
     // For default params: round(503 / 26.5) = round(18.98) = 19
     return static_cast<uint32_t>(
         std::round(m_bhtpPeriod.GetMilliSeconds() / m_slotDuration.GetMilliSeconds()));
@@ -164,16 +166,16 @@ SatBhScheduler::InitBeamPositions()
     const double sqrt3 = std::sqrt(3.0);
     const double pi    = std::acos(-1.0);
 
-    m_beamPositions.resize(m_numBeams, {0.0, 0.0});
+    m_beamPositions.resize(m_J, {0.0, 0.0});
 
-    if (m_numBeams == 0)
+    if (m_J == 0)
         return;
 
     // Ring 0: center beam (index 0 → beam 1 in SNS3)
     m_beamPositions[0] = {0.0, 0.0};
 
     // Ring 1: 6 beams at angles k×60°, k=0..5 (indices 1..6 → beams 2..7)
-    for (uint32_t k = 0; k < 6 && (k + 1) < m_numBeams; k++)
+    for (uint32_t k = 0; k < 6 && (k + 1) < m_J; k++)
     {
         double angle         = k * 60.0 * pi / 180.0;
         m_beamPositions[k + 1] = {d * std::cos(angle), d * std::sin(angle)};
@@ -182,7 +184,7 @@ SatBhScheduler::InitBeamPositions()
     // Ring 2: 12 beams forming the second hexagonal shell (indices 7..18 → beams 8..19)
     // Positions from hex-grid arithmetic: 6 corner beams at distance 2d,
     // 6 edge beams at distance d√3, alternating at 60°/30° offsets
-    if (m_numBeams > 7)
+    if (m_J > 7)
     {
         // 12 ring-2 positions in counter-clockwise order
         const double ring2[][2] = {
@@ -199,18 +201,18 @@ SatBhScheduler::InitBeamPositions()
             { d,               -d * sqrt3   },
             { 1.5 * d,         -d * sqrt3 / 2.0 },
         };
-        for (uint32_t k = 0; k < 12 && (k + 7) < m_numBeams; k++)
+        for (uint32_t k = 0; k < 12 && (k + 7) < m_J; k++)
             m_beamPositions[k + 7] = {ring2[k][0], ring2[k][1]};
     }
 
     // Ring 3: simple circular layout for any remaining beams beyond 19
-    for (uint32_t n = 19; n < m_numBeams; n++)
+    for (uint32_t jIdx = 19; jIdx < m_J; jIdx++)
     {
-        double angle      = (n - 19) * (2.0 * pi / 18.0);
-        m_beamPositions[n] = {3.0 * d * std::cos(angle), 3.0 * d * std::sin(angle)};
+        double angle         = (jIdx - 19) * (2.0 * pi / 18.0);
+        m_beamPositions[jIdx] = {3.0 * d * std::cos(angle), 3.0 * d * std::sin(angle)};
     }
 
-    NS_LOG_INFO("SatBhScheduler::InitBeamPositions: " << m_numBeams
+    NS_LOG_INFO("SatBhScheduler::InitBeamPositions: " << m_J
                 << " beams positioned on hex grid (spacing=" << d << " km)");
 }
 
@@ -220,24 +222,24 @@ void
 SatBhScheduler::OnDemandReceived(uint32_t beamId, uint32_t bytes)
 {
     // Lazy-initialise per-beam data structures on first demand event.
-    // This avoids construction-time dependency on m_numBeams (which may
+    // This avoids construction-time dependency on m_J (which may
     // be set later via SetAttribute before Install() is called).
     if (m_demandHistory.empty())
     {
-        m_demandHistory.assign(m_numBeams, std::vector<double>());
-        m_prevDemand.assign(m_numBeams, 0.0);
-        m_lambda.assign(m_numBeams, 1.0);
-        m_slotAlloc.assign(m_numBeams, 1);
-        m_virtualTraffic.assign(m_numBeams, 0.0);
-        m_consecutiveChanges.assign(m_numBeams, 0);
+        m_demandHistory.assign(m_J, std::vector<double>());
+        m_prevDemand.assign(m_J, 0.0);
+        m_lambda.assign(m_J, 1.0);
+        m_slotAlloc.assign(m_J, 1);
+        m_virtualTraffic.assign(m_J, 0.0);
+        m_consecutiveChanges.assign(m_J, 0);
     }
 
     // beamId is 1-indexed (SNS3 convention: beam IDs start at 1).
-    // Valid range: 1 .. m_numBeams.  Reject 0 (invalid) and > m_numBeams (out of range).
-    if (beamId == 0 || beamId > m_numBeams)
+    // Valid range: 1 .. m_J (= J beams per satellite).  Reject 0 and > J.
+    if (beamId == 0 || beamId > m_J)
     {
         NS_LOG_WARN("SatBhScheduler::OnDemandReceived: beamId="
-                    << beamId << " out of 1-indexed range [1," << m_numBeams << "]; ignored");
+                    << beamId << " out of 1-indexed range [1," << m_J << "]; ignored");
         return;
     }
 
@@ -247,8 +249,8 @@ SatBhScheduler::OnDemandReceived(uint32_t beamId, uint32_t bytes)
     // Append current observation to history ring buffer
     m_demandHistory[idx].push_back(static_cast<double>(bytes));
 
-    // Enforce observation window limit: keep at most W × M entries per beam
-    uint32_t maxHistory = m_observationWindow * ComputeM();
+    // Enforce observation window limit: keep at most W × F entries per beam
+    uint32_t maxHistory = m_observationWindow * ComputeF();
     while (m_demandHistory[idx].size() > maxHistory)
         m_demandHistory[idx].erase(m_demandHistory[idx].begin());
 
@@ -295,15 +297,15 @@ SatBhScheduler::RunSchedulingCycle(Time now)
     // Ensure data structures are initialised even if no demand has arrived yet
     if (m_demandHistory.empty())
     {
-        m_demandHistory.assign(m_numBeams, std::vector<double>());
-        m_prevDemand.assign(m_numBeams, 0.0);
-        m_lambda.assign(m_numBeams, 1.0);
-        m_slotAlloc.assign(m_numBeams, 1);
-        m_virtualTraffic.assign(m_numBeams, 0.0);
-        m_consecutiveChanges.assign(m_numBeams, 0);
+        m_demandHistory.assign(m_J, std::vector<double>());
+        m_prevDemand.assign(m_J, 0.0);
+        m_lambda.assign(m_J, 1.0);
+        m_slotAlloc.assign(m_J, 1);
+        m_virtualTraffic.assign(m_J, 0.0);
+        m_consecutiveChanges.assign(m_J, 0);
     }
 
-    // Initialise beam positions if not yet done
+    // Initialise beam positions if not yet done (one per j in 1..J)
     if (m_beamPositions.empty())
         InitBeamPositions();
 
@@ -333,7 +335,7 @@ SatBhScheduler::RunSchedulingCycle(Time now)
     m_currentPlan = plan;
 
     // Validate plan against structural invariants
-    if (!plan->Validate(m_maxActiveBeams))
+    if (!plan->Validate(m_Kb))
         NS_LOG_WARN("SatBhScheduler: generated plan " << plan->GetPlanId()
                     << " failed validation");
 
@@ -404,47 +406,47 @@ SatBhScheduler::RunEM()
 {
     // Poisson EM for multi-beam traffic estimation.
     //
-    // Model: demand from beam n in slot t follows Poisson(λ_n × T_s).
-    // Given observed demand x_{n,t} across N beams × (W×M) slots:
-    //   E-step: Q(λ|λ_old) = Σ_n Σ_t [ x_{n,t} × log(λ_n) − λ_n × T_s ]
-    //   M-step: λ_n_new = (1/(W×M)) × Σ_t x_{n,t}   ← sample mean per beam per slot
+    // Model: demand from beam j in slot f follows Poisson(λ_j × T_s).
+    // Given observed demand x_{j,f} across J beams × (W×F) slots:
+    //   E-step: Q(λ|λ_old) = Σ_j Σ_f [ x_{j,f} × log(λ_j) − λ_j × T_s ]
+    //   M-step: λ_j_new = (1/(W×F)) × Σ_f x_{j,f}   ← sample mean per beam per slot
     //   Stop:   ||λ_new − λ_old||₂ < ε  OR  iterations ≥ EmMaxIterations
     //
     // Note: the M-step formula is the global MLE regardless of λ_old, so
     // convergence typically occurs in one iteration. The loop exists for
     // model extensions (e.g., mixture models) and for consistency with spec.
 
-    uint32_t M         = ComputeM();
-    double   windowSz  = static_cast<double>(m_observationWindow * M);
+    uint32_t F         = ComputeF();  // F = slots per frame
+    double   windowSz  = static_cast<double>(m_observationWindow * F);
 
     bool converged = false;
 
     for (uint32_t iter = 0; iter < m_emMaxIterations && !converged; iter++)
     {
-        std::vector<double> lambdaNew(m_numBeams, 0.0);
+        std::vector<double> lambdaNew(m_J, 0.0);
 
-        // M-step: λ_n_new = (1 / W×M) × Σ_t x_{n,t}
-        for (uint32_t n = 0; n < m_numBeams; n++)
+        // M-step: λ_j_new = (1 / W×F) × Σ_f x_{j,f}
+        for (uint32_t j = 0; j < m_J; j++)  // j = 0-based beam index (1-indexed in SNS3)
         {
-            if (m_demandHistory[n].empty())
+            if (m_demandHistory[j].empty())
             {
                 // No demand data yet; keep a nominal positive rate (1 byte/slot)
-                lambdaNew[n] = 1.0;
+                lambdaNew[j] = 1.0;
                 continue;
             }
             double sum = 0.0;
-            for (double x : m_demandHistory[n])
+            for (double x : m_demandHistory[j])
                 sum += x;
             // Normalise by full window size even if history is shorter,
             // to avoid over-estimating rate when buffer is still filling up.
-            lambdaNew[n] = std::max(1.0, sum / windowSz);
+            lambdaNew[j] = std::max(1.0, sum / windowSz);
         }
 
         // Convergence check: ||λ_new − λ_old||₂ < ε
         double norm2 = 0.0;
-        for (uint32_t n = 0; n < m_numBeams; n++)
+        for (uint32_t j = 0; j < m_J; j++)
         {
-            double diff = lambdaNew[n] - m_lambda[n];
+            double diff = lambdaNew[j] - m_lambda[j];
             norm2 += diff * diff;
         }
         m_lambda  = lambdaNew;
@@ -462,30 +464,30 @@ SatBhScheduler::RunEM()
 void
 SatBhScheduler::ComputeSlotAllocation()
 {
-    // d_n = max(1, round(λ_n / Σλ × M × K))
-    // After rounding, apply global correction to ensure Σ d_n = M × K exactly.
+    // d_j = max(1, round(λ_j / Σλ × F × Kb))
+    // After rounding, apply global correction to ensure Σ d_j = F × Kb exactly.
     // Correction adjusts the beam(s) with the highest/lowest allocation first.
 
-    uint32_t M     = ComputeM();
-    uint32_t K     = m_maxActiveBeams;
-    uint32_t total = M * K; // Target: Σ d_n must equal this
+    uint32_t F     = ComputeF();  // F = slots per frame
+    uint32_t Kb    = m_Kb;        // Kb = max active beams per slot
+    uint32_t total = F * Kb;      // Target: Σ d_j must equal this
 
-    m_slotAlloc.resize(m_numBeams, 1);
+    m_slotAlloc.resize(m_J, 1);
 
     // Normalisation denominator
     double lambdaSum = 0.0;
-    for (uint32_t n = 0; n < m_numBeams; n++)
-        lambdaSum += m_lambda[n];
+    for (uint32_t j = 0; j < m_J; j++)
+        lambdaSum += m_lambda[j];
     if (lambdaSum <= 0.0)
         lambdaSum = 1.0;
 
     // Initial proportional allocation with floor at 1
     int32_t allocated = 0;
-    for (uint32_t n = 0; n < m_numBeams; n++)
+    for (uint32_t j = 0; j < m_J; j++)
     {
-        double frac = m_lambda[n] / lambdaSum * static_cast<double>(total);
-        m_slotAlloc[n] = std::max(1u, static_cast<uint32_t>(std::round(frac)));
-        allocated += static_cast<int32_t>(m_slotAlloc[n]);
+        double frac = m_lambda[j] / lambdaSum * static_cast<double>(total);
+        m_slotAlloc[j] = std::max(1u, static_cast<uint32_t>(std::round(frac)));
+        allocated += static_cast<int32_t>(m_slotAlloc[j]);
     }
 
     // Global correction: reduce high-allocation beams if surplus, increase low ones if deficit
@@ -493,11 +495,11 @@ SatBhScheduler::ComputeSlotAllocation()
 
     while (surplus > 0)
     {
-        // Reduce the beam with the largest d_n (that is still > 1)
+        // Reduce the beam with the largest d_j (that is still > 1)
         uint32_t maxIdx = 0;
-        for (uint32_t n = 1; n < m_numBeams; n++)
-            if (m_slotAlloc[n] > m_slotAlloc[maxIdx])
-                maxIdx = n;
+        for (uint32_t j = 1; j < m_J; j++)
+            if (m_slotAlloc[j] > m_slotAlloc[maxIdx])
+                maxIdx = j;
         if (m_slotAlloc[maxIdx] <= 1)
             break; // Cannot reduce further; accept residual surplus
         m_slotAlloc[maxIdx]--;
@@ -506,21 +508,21 @@ SatBhScheduler::ComputeSlotAllocation()
 
     while (surplus < 0)
     {
-        // Increase the beam with the smallest d_n
+        // Increase the beam with the smallest d_j
         uint32_t minIdx = 0;
-        for (uint32_t n = 1; n < m_numBeams; n++)
-            if (m_slotAlloc[n] < m_slotAlloc[minIdx])
-                minIdx = n;
+        for (uint32_t j = 1; j < m_J; j++)
+            if (m_slotAlloc[j] < m_slotAlloc[minIdx])
+                minIdx = j;
         m_slotAlloc[minIdx]++;
         surplus++;
     }
 
-    NS_LOG_INFO("SatBhScheduler::ComputeSlotAllocation: M=" << M
-                << " K=" << K << " total=" << total
+    NS_LOG_INFO("SatBhScheduler::ComputeSlotAllocation: F=" << F
+                << " Kb=" << Kb << " total=" << total
                 << " allocated=" << (allocated - surplus));
-    for (uint32_t n = 0; n < m_numBeams; n++)
-        NS_LOG_DEBUG("  beam[" << n << "] λ=" << m_lambda[n]
-                     << " d_n=" << m_slotAlloc[n]);
+    for (uint32_t j = 0; j < m_J; j++)
+        NS_LOG_DEBUG("  beam[" << j << "] λ=" << m_lambda[j]
+                     << " d_j=" << m_slotAlloc[j]);
 }
 
 // ── Virtual traffic (spec Section 6.2) ──────────────────────────────────────
@@ -538,17 +540,17 @@ SatBhScheduler::ComputeVirtualTraffic()
     // The relative ordering of A_j values across beams matches the spec intent:
     //   beams with high recent demand get higher virtual traffic.
 
-    m_virtualTraffic.resize(m_numBeams, 0.0);
+    m_virtualTraffic.resize(m_J, 0.0);
     double urgency = 1.0 + 1.0 / static_cast<double>(m_observationWindow);
 
-    for (uint32_t n = 0; n < m_numBeams; n++)
+    for (uint32_t j = 0; j < m_J; j++)  // j = 0-based beam index
     {
         // Use most recent observation as the "current period demand"
         double demand = 0.0;
-        if (!m_demandHistory[n].empty())
-            demand = m_demandHistory[n].back();
+        if (!m_demandHistory[j].empty())
+            demand = m_demandHistory[j].back();
 
-        m_virtualTraffic[n] = demand * m_alphaDelaySensitivity * urgency;
+        m_virtualTraffic[j] = demand * m_alphaDelaySensitivity * urgency;
     }
 
     NS_LOG_DEBUG("SatBhScheduler::ComputeVirtualTraffic: α=" << m_alphaDelaySensitivity
@@ -575,8 +577,8 @@ SatBhScheduler::ComputeInterferenceFactor(uint32_t beamI, uint32_t beamJ) const
     if (beamI >= m_beamPositions.size() || beamJ >= m_beamPositions.size())
         return 0.0; // Positions not initialised; assume no interference
 
-    const double rMiddle    = 40.0; // km — MIDDLE beam 3dB radius (spec Section 4.2)
-    const double firstLayer = 1.5 * (rMiddle + rMiddle); // = 120 km
+    const double rMiddle    = 20.0; // km — MIDDLE beam 3dB radius (patternIndex=2, 2.0° beamwidth)
+    const double firstLayer = 1.5 * (rMiddle + rMiddle); // = 60 km
 
     // Euclidean distance between beam centre positions in km
     double dx  = m_beamPositions[beamI].first  - m_beamPositions[beamJ].first;
@@ -660,28 +662,28 @@ SatBhScheduler::BuildPlan(Time periodStart)
     Ptr<SatBhTimePlan> plan = CreateObject<SatBhTimePlan>();
     plan->SetPlanId(m_nextPlanId++);
 
-    uint32_t M = ComputeM();
+    uint32_t F = ComputeF();  // F = slots per frame
     plan->SetPeriodBounds(periodStart, periodStart + m_bhtpPeriod);
 
-    // ── Step 1: categorise beams into hotspot / non-hotspot ───────────────
-    // Non-hotspot: d_n ≤ 25th-percentile threshold (spec Section 6.3 Phase A)
-    // Hotspot:     d_n >  25th-percentile threshold (spec Section 6.3 Phase B)
+    // ── Step 1: categorise beams (j=1..J) into hotspot / non-hotspot ─────
+    // Non-hotspot: d_j ≤ 25th-percentile threshold (spec Section 6.3 Phase A)
+    // Hotspot:     d_j >  25th-percentile threshold (spec Section 6.3 Phase B)
 
     std::vector<uint32_t> sortedAlloc(m_slotAlloc.begin(),
-                                      m_slotAlloc.begin() + m_numBeams);
+                                      m_slotAlloc.begin() + m_J);
     std::sort(sortedAlloc.begin(), sortedAlloc.end());
     uint32_t p25Idx       = static_cast<uint32_t>(m_nonHotspotPercentile *
-                                                  (m_numBeams > 1 ? m_numBeams - 1 : 0));
+                                                  (m_J > 1 ? m_J - 1 : 0));
     uint32_t p25Threshold = sortedAlloc[p25Idx];
 
     // Collect hotspot beams sorted by virtual traffic (highest first)
     std::vector<uint32_t> hotspotBeams, nonHotspotBeams;
-    for (uint32_t n = 0; n < m_numBeams; n++)
+    for (uint32_t j = 0; j < m_J; j++)  // j = 0-based beam index
     {
-        if (m_slotAlloc[n] <= p25Threshold)
-            nonHotspotBeams.push_back(n);
+        if (m_slotAlloc[j] <= p25Threshold)
+            nonHotspotBeams.push_back(j);
         else
-            hotspotBeams.push_back(n);
+            hotspotBeams.push_back(j);
     }
     std::sort(hotspotBeams.begin(), hotspotBeams.end(),
               [this](uint32_t a, uint32_t b) {
@@ -692,63 +694,63 @@ SatBhScheduler::BuildPlan(Time periodStart)
     // Non-hotspot → LARGE (wide coverage, lower gain)
     // Top 1/3 hotspot by virtual traffic → SMALL (concentrated gain, high SINR)
     // Remaining hotspot → MIDDLE (general purpose)
-    std::vector<BeamRadiusType> beamRadius(m_numBeams, BeamRadiusType::MIDDLE);
+    std::vector<BeamRadiusType> beamRadius(m_J, BeamRadiusType::MIDDLE);
 
-    for (uint32_t n : nonHotspotBeams)
-        beamRadius[n] = BeamRadiusType::LARGE;
+    for (uint32_t j : nonHotspotBeams)
+        beamRadius[j] = BeamRadiusType::LARGE;
 
     if (!hotspotBeams.empty())
     {
         uint32_t smallCount =
             std::max(1u, static_cast<uint32_t>(hotspotBeams.size() / 3));
-        for (uint32_t i = 0; i < smallCount; i++)
-            beamRadius[hotspotBeams[i]] = BeamRadiusType::SMALL;
+        for (uint32_t idx = 0; idx < smallCount; idx++)
+            beamRadius[hotspotBeams[idx]] = BeamRadiusType::SMALL;
     }
 
     // ── Step 3: interference cluster grouping (spec Section 6.4) ─────────
-    // All numBeams beams are grouped; cluster IDs stored in m_clusterMap.
-    std::vector<uint32_t> allBeams(m_numBeams);
-    std::iota(allBeams.begin(), allBeams.end(), 0); // {0, 1, ..., N-1}
+    // All J beams are grouped; cluster IDs stored in m_clusterMap.
+    std::vector<uint32_t> allBeams(m_J);
+    std::iota(allBeams.begin(), allBeams.end(), 0); // {0, 1, ..., J-1}
     GroupClusters(allBeams);
 
-    // ── Step 4: K-limited greedy slot assignment ───────────────────────────
-    // slotBeams[s] = 0-indexed beam IDs assigned to slot s.
+    // ── Step 4: Kb-limited greedy slot assignment ──────────────────────────
+    // slotBeams[f] = 0-indexed beam IDs assigned to the f-th slot within frame n.
     // Assignment order: non-hotspot first (large-beam coverage priority),
     // then hotspot by virtual traffic (high-demand served first).
-    // Within each slot, at most K beams, no interfering beam pair (ω ≥ κ).
+    // Within each slot f, at most Kb beams, no interfering beam pair (ω ≥ κ).
 
-    std::vector<std::vector<uint32_t>> slotBeams(M);
+    std::vector<std::vector<uint32_t>> slotBeams(F);
 
     std::vector<uint32_t> beamOrder;
     beamOrder.insert(beamOrder.end(), nonHotspotBeams.begin(), nonHotspotBeams.end());
     beamOrder.insert(beamOrder.end(), hotspotBeams.begin(), hotspotBeams.end());
 
-    // Track remaining slot budget per beam (initialised from d_n)
-    std::vector<int32_t> remaining(m_numBeams);
-    for (uint32_t n = 0; n < m_numBeams; n++)
-        remaining[n] = static_cast<int32_t>(m_slotAlloc[n]);
+    // Track remaining slot budget per beam j (initialised from d_j)
+    std::vector<int32_t> remaining(m_J);
+    for (uint32_t j = 0; j < m_J; j++)
+        remaining[j] = static_cast<int32_t>(m_slotAlloc[j]);
 
-    for (uint32_t n : beamOrder)
+    for (uint32_t j : beamOrder)
     {
-        while (remaining[n] > 0)
+        while (remaining[j] > 0)
         {
-            // Find the slot with the fewest beams that:
-            //   (a) still has capacity (< K beams),
-            //   (b) does not already contain beam n,
-            //   (c) contains no beam that interferes with n (ω ≥ κ).
+            // Find the f-th slot with fewest beams that:
+            //   (a) still has capacity (< Kb beams),
+            //   (b) does not already contain beam j,
+            //   (c) contains no beam that interferes with j (ω ≥ κ).
             int32_t  chosen  = -1;
-            uint32_t minSize = m_maxActiveBeams + 1;
+            uint32_t minSize = m_Kb + 1;
 
-            for (uint32_t s = 0; s < M; s++)
+            for (uint32_t f = 0; f < F; f++)
             {
-                // Capacity check
-                if (static_cast<uint32_t>(slotBeams[s].size()) >= m_maxActiveBeams)
+                // Capacity check: at most Kb beams per slot
+                if (static_cast<uint32_t>(slotBeams[f].size()) >= m_Kb)
                     continue;
 
                 // Duplicate check: beam must not appear twice in the same slot
                 bool duplicate = false;
-                for (uint32_t b : slotBeams[s])
-                    if (b == n)
+                for (uint32_t b : slotBeams[f])
+                    if (b == j)
                     {
                         duplicate = true;
                         break;
@@ -759,9 +761,9 @@ SatBhScheduler::BuildPlan(Time periodStart)
                 // Interference check: avoid co-scheduling beams in the same cluster
                 // (they would require MMSE precoding, which is Phase 3)
                 bool interferenceOk = true;
-                for (uint32_t b : slotBeams[s])
+                for (uint32_t b : slotBeams[f])
                 {
-                    if (ComputeInterferenceFactor(n, b) >= m_interferenceKappa)
+                    if (ComputeInterferenceFactor(j, b) >= m_interferenceKappa)
                     {
                         interferenceOk = false;
                         break;
@@ -770,34 +772,33 @@ SatBhScheduler::BuildPlan(Time periodStart)
 
                 // Prefer the slot with the fewest current assignments (load balancing)
                 if (interferenceOk &&
-                    static_cast<uint32_t>(slotBeams[s].size()) < minSize)
+                    static_cast<uint32_t>(slotBeams[f].size()) < minSize)
                 {
-                    chosen  = static_cast<int32_t>(s);
-                    minSize = static_cast<uint32_t>(slotBeams[s].size());
+                    chosen  = static_cast<int32_t>(f);
+                    minSize = static_cast<uint32_t>(slotBeams[f].size());
                 }
             }
 
             // Fallback: if no interference-free slot found, accept any under-capacity slot.
             // This can occur when κ is very small and all slots contain interfering beams.
-            // The resulting co-scheduled beams will produce a note in the log.
             if (chosen < 0)
             {
-                for (uint32_t s = 0; s < M; s++)
+                for (uint32_t f = 0; f < F; f++)
                 {
-                    if (static_cast<uint32_t>(slotBeams[s].size()) < m_maxActiveBeams)
+                    if (static_cast<uint32_t>(slotBeams[f].size()) < m_Kb)
                     {
                         bool dup = false;
-                        for (uint32_t b : slotBeams[s])
-                            if (b == n)
+                        for (uint32_t b : slotBeams[f])
+                            if (b == j)
                             {
                                 dup = true;
                                 break;
                             }
                         if (!dup)
                         {
-                            chosen = static_cast<int32_t>(s);
+                            chosen = static_cast<int32_t>(f);
                             NS_LOG_WARN("SatBhScheduler::BuildPlan: beam "
-                                        << n << " placed in slot " << s
+                                        << j << " placed in slot f=" << f
                                         << " with potential interference (no clean slot)");
                             break;
                         }
@@ -807,15 +808,15 @@ SatBhScheduler::BuildPlan(Time periodStart)
 
             if (chosen >= 0)
             {
-                slotBeams[chosen].push_back(n);
-                remaining[n]--;
+                slotBeams[chosen].push_back(j);
+                remaining[j]--;
             }
             else
             {
-                // All M slots full or already contain this beam; cannot assign
-                NS_LOG_WARN("SatBhScheduler::BuildPlan: beam " << n
+                // All F slots full or already contain this beam; cannot assign
+                NS_LOG_WARN("SatBhScheduler::BuildPlan: beam j=" << j
                             << " could not be assigned a slot; remaining="
-                            << remaining[n]);
+                            << remaining[j]);
                 break;
             }
         }
@@ -823,42 +824,45 @@ SatBhScheduler::BuildPlan(Time periodStart)
 
     // ── Step 5: convert slot assignments to BhSlotEntry objects ──────────
     // Slots are added in ascending startTime order (asserted by SatBhTimePlan::AddSlot).
-    // Empty slots (no beams assigned) are skipped to avoid zero-beam entries.
+    // f = f-th slot within frame n; empty slots are skipped.
 
-    for (uint32_t s = 0; s < M; s++)
+    for (uint32_t f = 0; f < F; f++)
     {
-        if (slotBeams[s].empty())
+        if (slotBeams[f].empty())
             continue;
 
         BhSlotEntry slot;
-        slot.startTime = s * m_slotDuration;   // Offset from period start
+        slot.startTime = f * m_slotDuration;   // Offset from frame start (f-th slot)
         slot.duration  = m_slotDuration;        // T_s = 26.5 ms by default
 
-        // Determine slot beam radius: use the most restrictive (smallest = highest gain)
-        // among all beams in this slot.  SMALL (0) < MIDDLE (1) < LARGE (2).
-        slot.beamRadius = BeamRadiusType::LARGE;
-        for (uint32_t bIdx : slotBeams[s])
+        // Convert 0-indexed beam IDs to 1-indexed (SNS3 convention),
+        // attach cluster IDs, and set per-beam pattern via SetBeamPattern.
+        // MODCOD is taken from the most restrictive (smallest index) beam in this slot.
+        BeamRadiusType slotMinPattern = BeamRadiusType::XLARGE;
+        for (uint32_t bIdx : slotBeams[f])
         {
             if (static_cast<uint8_t>(beamRadius[bIdx]) <
-                static_cast<uint8_t>(slot.beamRadius))
-                slot.beamRadius = beamRadius[bIdx];
+                static_cast<uint8_t>(slotMinPattern))
+                slotMinPattern = beamRadius[bIdx];
         }
 
-        // MODCOD index proportional to beam gain (spec placeholder values)
-        switch (slot.beamRadius)
+        // MODCOD index proportional to beam gain (placeholder values; higher gain → higher MODCOD)
+        switch (slotMinPattern)
         {
+            case BeamRadiusType::XSMALL: slot.modcod = 20; break;
             case BeamRadiusType::SMALL:  slot.modcod = 15; break;
             case BeamRadiusType::MIDDLE: slot.modcod = 10; break;
             case BeamRadiusType::LARGE:  slot.modcod = 5;  break;
+            case BeamRadiusType::XLARGE: slot.modcod = 2;  break;
+            default:                     slot.modcod = 10; break;
         }
 
-        // Convert 0-indexed beam IDs to 1-indexed (SNS3 convention)
-        // and attach cluster IDs (also 1-indexed)
-        for (uint32_t bIdx : slotBeams[s])
+        for (uint32_t bIdx : slotBeams[f])
         {
             uint32_t beamId1  = bIdx + 1;
             uint32_t clustId1 = m_clusterMap.count(bIdx) ? m_clusterMap[bIdx] + 1 : beamId1;
             slot.beamIds.push_back(beamId1);
+            slot.SetBeamPattern(beamId1, beamRadius[bIdx]); // per-beam pattern
             slot.clusterIds.push_back(clustId1);
         }
 
@@ -867,7 +871,7 @@ SatBhScheduler::BuildPlan(Time periodStart)
 
     NS_LOG_INFO("SatBhScheduler::BuildPlan: planId=" << plan->GetPlanId()
                 << " slots=" << plan->GetNumSlots()
-                << " M=" << M
+                << " F=" << F
                 << " hotspot=" << hotspotBeams.size()
                 << " nonHotspot=" << nonHotspotBeams.size());
 

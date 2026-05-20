@@ -1,0 +1,241 @@
+<mxfile host="65bd71144e">
+    <diagram id="fig08-slot-capacity-beam-coverage" name="Page-1">
+        <mxGraphModel dx="2168" dy="1039" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="880" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Figure 8. Slot Capacity &amp; Beam Coverage within One Routing Slot (T_slot = 60 s)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=20;fontStyle=1;fontColor=#1f2937;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="16" width="1600" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg-col1" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#cbd5e1;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="15" y="58" width="575" height="790" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg-col2" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#bbf7d0;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="605" y="58" width="580" height="790" as="geometry"/>
+                </mxCell>
+                <mxCell id="bg-col3" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#e9d5ff;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="1200" y="58" width="582" height="790" as="geometry"/>
+                </mxCell>
+                <mxCell id="col1-title" value="① ISL Capacity per Slot" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=16;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="22" y="66" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="params-hdr" value="Default simulation parameters" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#64748b;strokeWidth=1;fontStyle=1;fontSize=13;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="28" y="116" width="552" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="params-body" value="ISL rate = 10 Mbps     T_slot = 60 s     FWD pkt = 1500 B / 100 ms per flow     RTN pkt = 512 B / 500 ms per flow" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;fontSize=12;align=left;spacingLeft=8;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="28" y="144" width="552" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="cap-hdr" value="ISL Link Capacity per Slot (one link)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=14;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="28" y="198" width="552" height="28" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1-lbl" value="Total capacity / slot:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="234" width="220" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1-val" value="10 Mbps × 60 s = 600 Mb = 75 MB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#2563eb;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="232" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="r2-lbl" value="FWD packets / slot (1500 B):" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="266" width="224" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r2-val" value="600 × 10⁶ / (1500 × 8) = 50,000 pkts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#2563eb;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="264" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="r3-lbl" value="RTN packets / slot (512 B):" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="298" width="224" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r3-val" value="600 × 10⁶ / (512 × 8) ≈ 146,484 pkts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#2563eb;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="296" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow-hdr" value="Concurrent Flow Capacity (one ISL link)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#2563eb;strokeWidth=2;fontStyle=1;fontSize=14;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="28" y="338" width="552" height="28" as="geometry"/>
+                </mxCell>
+                <mxCell id="r4-lbl" value="FWD rate per flow:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="374" width="220" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r4-val" value="1500 B × 8 / 100 ms = 120 kbps / flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="372" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="r5-lbl" value="Max concurrent FWD flows:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="406" width="224" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r5-val" value="10 Mbps / 120 kbps ≈ 83 flows per ISL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;strokeWidth=2;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="404" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="r6-lbl" value="RTN rate per flow:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="438" width="220" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r6-val" value="512 B × 8 / 500 ms = 8.2 kbps / flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="436" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="ut-hdr" value="UT Service Capacity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#f97316;strokeWidth=2;fontStyle=1;fontSize=14;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="28" y="480" width="552" height="28" as="geometry"/>
+                </mxCell>
+                <mxCell id="r7-lbl" value="Active beams per run:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="516" width="220" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r7-val" value="1 beam (beamId=1, single-beam scenario)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#f97316;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="514" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="r8-lbl" value="UTs in full scenario:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="548" width="220" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r8-val" value="90+ UT user nodes (SNS3 Iridium config)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#f97316;strokeWidth=1;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="546" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="r9-lbl" value="Full Iridium system scale:" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="580" width="220" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="r9-val" value="66 sat × 48 beams = 3,168 active beams" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fb923c;strokeColor=#ea580c;strokeWidth=2;fontSize=13;align=center;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="262" y="578" width="312" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="col2-title" value="② Beam Footprint Drift within T_slot = 60 s" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=2;fontStyle=1;fontSize=16;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="612" y="66" width="566" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="orb-params" value="Iridium: h = 780 km,  v ≈ 7.46 km/s  →  Δx = 7.46 × 60 ≈ 450 km / slot   |   Spot beam diameter ≈ 670 km" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;strokeWidth=1;fontSize=12;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="618" y="116" width="566" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="topdown-label" value="Top-down view  (scale: 1 px ≈ 3.4 km)" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=2;align=center;fontColor=#64748b;" parent="1" vertex="1">
+                    <mxGeometry x="618" y="154" width="566" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="ground-plane" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfdf5;strokeColor=#6ee7b7;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="612" y="174" width="556" height="340" as="geometry"/>
+                </mxCell>
+                <mxCell id="ground-text" value="Ground Surface" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=2;align=left;fontColor=#94a3b8;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="494" width="120" height="16" as="geometry"/>
+                </mxCell>
+                <mxCell id="beam-t0" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;strokeWidth=3;opacity=60;" parent="1" vertex="1">
+                    <mxGeometry x="719" y="256" width="200" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="beam-tT" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;strokeWidth=3;opacity=60;" parent="1" vertex="1">
+                    <mxGeometry x="851" y="256" width="200" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat0" value="SAT&#xa;t=0" style="ellipse;whiteSpace=wrap;html=1;fillColor=#1d4ed8;strokeColor=#1e3a8a;strokeWidth=2;fontColor=#ffffff;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="801" y="338" width="36" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="satT" value="SAT&#xa;t=T" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ea580c;strokeColor=#7c2d12;strokeWidth=2;fontColor=#ffffff;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="933" y="338" width="36" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="move-arrow" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#374151;strokeWidth=2;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="760" y="322" as="sourcePoint"/>
+                        <mxPoint x="854" y="322" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="move-label" value="≈ 450 km" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontStyle=1;align=center;fontColor=#374151;" parent="1" vertex="1">
+                    <mxGeometry x="848" y="302" width="90" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="diam-line" value="" style="endArrow=open;startArrow=open;startFill=0;endFill=0;html=1;strokeColor=#1d4ed8;strokeWidth=1.5;dashed=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="718" y="242" as="sourcePoint"/>
+                        <mxPoint x="918" y="242" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="diam-lbl" value="~670 km (beam ∅)" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontStyle=1;align=center;fontColor=#1d4ed8;" parent="1" vertex="1">
+                    <mxGeometry x="739" y="222" width="180" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="beam-t0-lbl" value="Beam at t = 0" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontStyle=1;align=center;fontColor=#1d4ed8;" parent="1" vertex="1">
+                    <mxGeometry x="719" y="462" width="200" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="beam-tT-lbl" value="Beam at t = T_slot" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontStyle=1;align=center;fontColor=#ea580c;" parent="1" vertex="1">
+                    <mxGeometry x="851" y="462" width="200" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="overlap-note" value="Overlap ≈ 21%" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;fontStyle=3;align=center;fontColor=#059669;" parent="1" vertex="1">
+                    <mxGeometry x="839" y="340" width="120" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="answer-box" value="Q: Does the beam stay in the same cell during T_slot?&#xa;A: NO — footprint centre shifts ≈ 450 km (67% of beam diameter).&#xa;    Only ~21% of the original cell is consistently covered across the slot.&#xa;    ∴ Layer 2 beam-hop frame must be ≪ T_slot to maintain per-cell coverage." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef2f2;strokeColor=#ef4444;strokeWidth=2;fontSize=13;align=left;spacingLeft=10;" parent="1" vertex="1">
+                    <mxGeometry x="615" y="526" width="572" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="overlap-calc" value="Overlap area = 2r²·arccos(d / 2r) − (d/2)·√(4r²−d²)   where r = 335 km, d = 450 km  →  ≈ 21% of circle area" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=2;align=center;fontColor=#64748b;" parent="1" vertex="1">
+                    <mxGeometry x="615" y="612" width="572" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="col3-title" value="③ Time Scale Hierarchy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#9333ea;strokeWidth=2;fontStyle=1;fontSize=16;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1208" y="66" width="566" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="col3-sub" value="How T_slot relates to other system time scales" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;fontStyle=2;align=center;fontColor=#6b21a8;" parent="1" vertex="1">
+                    <mxGeometry x="1208" y="112" width="566" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e7ff;strokeColor=#6366f1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="1215" y="148" width="552" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1-name" value="Packet TX time" style="text;html=1;strokeColor=none;fillColor=none;fontSize=14;fontStyle=1;align=left;fontColor=#3730a3;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="154" width="200" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1-val" value="~1.2 ms" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;align=right;fontColor=#3730a3;" parent="1" vertex="1">
+                    <mxGeometry x="1590" y="150" width="170" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1-desc" value="1500 B × 8 / 10 Mbps = 1.2 ms per packet on ISL" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;align=left;fontColor=#4338ca;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="178" width="400" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="a12" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#7c3aed;strokeWidth=2;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1491" y="214" as="sourcePoint"/>
+                        <mxPoint x="1491" y="236" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a12-lbl" value="×830" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;align=left;fontColor=#7c3aed;" parent="1" vertex="1">
+                    <mxGeometry x="1500" y="218" width="50" height="16" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fae8ff;strokeColor=#9333ea;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="1215" y="240" width="552" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2-name" value="Beam Hop Frame  (Layer 2 — planned)" style="text;html=1;strokeColor=none;fillColor=none;fontSize=14;fontStyle=1;align=left;fontColor=#6b21a8;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="246" width="340" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2-val" value="~1–5 s" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;align=right;fontColor=#6b21a8;" parent="1" vertex="1">
+                    <mxGeometry x="1590" y="242" width="170" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2-desc" value="Beam dwell per cell; must be ≪ T_slot to prevent coverage gap" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;align=left;fontColor=#7e22ce;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="270" width="400" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="a23" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#7c3aed;strokeWidth=2;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1491" y="306" as="sourcePoint"/>
+                        <mxPoint x="1491" y="328" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a23-lbl" value="×20" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;align=left;fontColor=#7c3aed;" parent="1" vertex="1">
+                    <mxGeometry x="1500" y="310" width="50" height="16" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;strokeWidth=3;" parent="1" vertex="1">
+                    <mxGeometry x="1215" y="332" width="552" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-name" value="Routing Slot  (Layer 1 — this work)" style="text;html=1;strokeColor=none;fillColor=none;fontSize=14;fontStyle=1;align=left;fontColor=#1e40af;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="338" width="330" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-val" value="T_slot = 60 s" style="text;html=1;strokeColor=none;fillColor=none;fontSize=20;fontStyle=1;align=right;fontColor=#1e40af;" parent="1" vertex="1">
+                    <mxGeometry x="1540" y="336" width="220" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-desc" value="ISL routing table updated once per slot; Dijkstra + apply at each slot boundary" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;align=left;fontColor=#1d4ed8;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="362" width="420" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="a34" value="" style="endArrow=block;endFill=1;html=1;strokeColor=#7c3aed;strokeWidth=2;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1491" y="398" as="sourcePoint"/>
+                        <mxPoint x="1491" y="420" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a34-lbl" value="×100" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;align=left;fontColor=#7c3aed;" parent="1" vertex="1">
+                    <mxGeometry x="1500" y="402" width="50" height="16" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="1215" y="424" width="552" height="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4-name" value="Orbital Period" style="text;html=1;strokeColor=none;fillColor=none;fontSize=14;fontStyle=1;align=left;fontColor=#92400e;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="430" width="200" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4-val" value="~100 min" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;align=right;fontColor=#92400e;" parent="1" vertex="1">
+                    <mxGeometry x="1570" y="428" width="190" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4-desc" value="Full orbit; ~10 routing slots per pass over a ground area" style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;align=left;fontColor=#a16207;" parent="1" vertex="1">
+                    <mxGeometry x="1225" y="454" width="400" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="implication" value="Design implication for Layer 2:&#xa;Beam hop frame (~1–5 s) ≪ T_slot (60 s) — beam can visit multiple cells within&#xa;one routing slot without triggering ISL reroute overhead.&#xa;This decouples coverage adaptation (L2) from routing update cost (L1)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;strokeWidth=2;fontSize=13;align=left;spacingLeft=10;" parent="1" vertex="1">
+                    <mxGeometry x="1215" y="510" width="552" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="summary" value="Summary:  T_slot = 60 s  →  50,000 FWD pkts / ISL link / slot,  ~83 concurrent flows.  Beam footprint drifts 450 km (67% of beam width), only 21% overlap.  Layer 2 frame ≪ 60 s required." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1e293b;strokeColor=#0f172a;strokeWidth=2;fontSize=13;fontStyle=1;fontColor=#f8fafc;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="15" y="860" width="1766" height="36" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

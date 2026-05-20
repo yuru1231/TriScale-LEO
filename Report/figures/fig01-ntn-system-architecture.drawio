@@ -1,0 +1,254 @@
+<mxfile host="65bd71144e">
+    <diagram id="fig01-ntn-system-architecture" name="Page-1">
+        <mxGraphModel dx="1386" dy="779" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1055" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Figure 1. NTN System Architecture (Iridium-66 LEO Constellation)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1f2937;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="8" width="900" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="66 LEO satellites · 6 orbital planes × 11 sats/plane · Altitude: 780 km · 4 ISLs/satellite (2 intra-plane + 2 cross-plane) · ISL threshold: 5,000 km" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontColor=#475569;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="32" width="1100" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="spaceSeg" value="Space Segment — Satellite Constellation &amp; ISL Mesh" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf3ff;strokeColor=#3b7dd8;strokeWidth=2;fontStyle=1;fontSize=17;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="56" width="1560" height="450" as="geometry"/>
+                </mxCell>
+                <mxCell id="groundSeg" value="Ground Segment — Gateway &amp; Core Network" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ee;strokeColor=#4c8c52;strokeWidth=2;fontStyle=1;fontSize=17;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="514" width="1560" height="188" as="geometry"/>
+                </mxCell>
+                <mxCell id="userSeg" value="User Segment — UE / Ground Terminal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ec;strokeColor=#c48a2d;strokeWidth=2;fontStyle=1;fontSize=17;align=left;spacingLeft=16;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="710" width="1560" height="145" as="geometry"/>
+                </mxCell>
+                <mxCell id="planeLabel1" value="Orbital Plane 1  →" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=13;fontColor=#3b7dd8;fontStyle=3;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="108" width="210" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="planeLabel2" value="Orbital Plane 2  →" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=13;fontColor=#3b7dd8;fontStyle=3;" parent="1" vertex="1">
+                    <mxGeometry x="28" y="290" width="210" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="planeSep" value="" style="html=1;endArrow=none;strokeColor=#a8c4e0;strokeWidth=1;dashed=1;dashPattern=10 5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="36" y="284" as="sourcePoint"/>
+                        <mxPoint x="1568" y="284" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="orb1" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#c5d9ee;strokeWidth=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="36" y="170" as="sourcePoint"/>
+                        <mxPoint x="1568" y="170" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="orb2" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#c5d9ee;strokeWidth=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="36" y="388" as="sourcePoint"/>
+                        <mxPoint x="1568" y="388" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="sat11" value="SAT-11" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=#375a7f;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="68" y="144" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat12" value="SAT-12&#xa;(Access/Relay)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#d97706;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="278" y="144" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat13" value="SAT-13&#xa;(Relay)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#d97706;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="533" y="144" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat14" value="SAT-14" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=#375a7f;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="803" y="144" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat15" value="SAT-15" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=#375a7f;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1068" y="144" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext1L" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="68" y="170" as="sourcePoint"/>
+                        <mxPoint x="24" y="170" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="ext1R" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1183" y="170" as="sourcePoint"/>
+                        <mxPoint x="1570" y="170" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="sat21" value="SAT-21" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=#375a7f;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="168" y="360" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat22" value="SAT-22" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=#375a7f;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="360" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat23" value="SAT-23&#xa;(Relay)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#d97706;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="672" y="360" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat24" value="SAT-24&#xa;(GW-Sat)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#d97706;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="360" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="sat25" value="SAT-25" style="ellipse;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=#375a7f;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1210" y="360" width="115" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext2L" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="168" y="386" as="sourcePoint"/>
+                        <mxPoint x="24" y="386" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="ext2R" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1325" y="386" as="sourcePoint"/>
+                        <mxPoint x="1570" y="386" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="isl_11_12" value="ISL" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;fontSize=12;fontColor=#64748b;labelBackgroundColor=#eaf3ff;curved=1;" parent="1" source="sat11" target="sat12" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_12_13" value="② ISL" style="html=1;endArrow=open;endFill=0;strokeColor=#d97706;strokeWidth=4;fontSize=13;fontColor=#d97706;fontStyle=1;labelBackgroundColor=#fffbea;curved=1;" parent="1" source="sat12" target="sat13" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_13_14" value="ISL" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;fontSize=12;fontColor=#64748b;labelBackgroundColor=#eaf3ff;curved=1;" parent="1" source="sat13" target="sat14" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_14_15" value="ISL" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;fontSize=12;fontColor=#64748b;labelBackgroundColor=#eaf3ff;curved=1;" parent="1" source="sat14" target="sat15" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_21_22" value="ISL" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;fontSize=12;fontColor=#64748b;labelBackgroundColor=#eaf3ff;curved=1;" parent="1" source="sat21" target="sat22" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_22_23" value="ISL" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;fontSize=12;fontColor=#64748b;labelBackgroundColor=#eaf3ff;curved=1;" parent="1" source="sat22" target="sat23" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_23_24" value="④ ISL" style="html=1;endArrow=open;endFill=0;strokeColor=#d97706;strokeWidth=4;fontSize=13;fontColor=#d97706;fontStyle=1;labelBackgroundColor=#fffbea;curved=1;" parent="1" source="sat23" target="sat24" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="isl_24_25" value="ISL" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;fontSize=12;fontColor=#64748b;labelBackgroundColor=#eaf3ff;curved=1;" parent="1" source="sat24" target="sat25" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="xIsl_11_21" value="cross-plane ISL" style="html=1;endArrow=none;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;dashPattern=7 5;fontSize=11;fontColor=#94a3b8;labelBackgroundColor=#eaf3ff;" parent="1" source="sat11" target="sat21" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="xIsl_13_23" value="③ ISL (cross-plane)" style="html=1;endArrow=open;endFill=0;strokeColor=#d97706;strokeWidth=4;fontSize=13;fontColor=#d97706;fontStyle=1;labelBackgroundColor=#fffbea;align=right;" parent="1" source="sat13" target="sat23" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="xIsl_15_25" value="" style="html=1;endArrow=none;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;dashPattern=7 5;" parent="1" source="sat15" target="sat25" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="islThreshNote" value="ISL eligible: distance ≤ 5,000 km" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0f6ff;strokeColor=#3b7dd8;strokeWidth=1;fontSize=12;fontColor=#1e3a8a;" parent="1" vertex="1">
+                    <mxGeometry x="1320" y="220" width="238" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="feeder_A" value="① Feeder Link (Ka-band)" style="html=1;endArrow=open;endFill=0;dashed=1;dashPattern=10 6;strokeColor=#15803d;strokeWidth=4;fontSize=13;fontColor=#15803d;fontStyle=1;labelBackgroundColor=#f0fdf4;" parent="1" edge="1">
+                    <mxGeometry x="0.1921" y="32" relative="1" as="geometry">
+                        <mxPoint x="215" y="553" as="sourcePoint"/>
+                        <mxPoint x="336" y="196" as="targetPoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="feeder_B" value="⑤ Feeder Link (Ka-band)" style="html=1;endArrow=open;endFill=0;dashed=1;dashPattern=10 6;strokeColor=#15803d;strokeWidth=4;fontSize=13;fontColor=#15803d;fontStyle=1;labelBackgroundColor=#f0fdf4;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="998" y="412" as="sourcePoint"/>
+                        <mxPoint x="1022" y="553" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gwA" value="Gateway-A&#xa;(GW-0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#15803d;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="128" y="553" width="175" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="gwB" value="Gateway-B&#xa;(GW-2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#15803d;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="934" y="553" width="175" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="core" value="Core Network / PSTN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9fafb;strokeColor=#475569;strokeWidth=2;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="1220" y="557" width="200" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="backhaul" value="⑥ Terrestrial Backhaul" style="html=1;endArrow=open;endFill=0;strokeColor=#475569;strokeWidth=3;fontSize=13;fontColor=#475569;fontStyle=1;" parent="1" source="gwB" target="core" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="gwNote" value="Real Iridium: 1 gateway globally (Tempe, AZ) — ISL mesh routes all traffic" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;fontColor=#166534;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="36" y="656" width="660" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="ue1" value="UE / UT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#d97706;strokeWidth=3;fontStyle=1;fontSize=14;" parent="1" vertex="1">
+                    <mxGeometry x="277" y="748" width="120" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="ue2" value="Fixed Terminal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ec;strokeColor=#c48a2d;strokeWidth=1.5;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="470" y="748" width="130" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="svcLink1" value="Service Link (L-band)&#xa;(gw2ut / sat2ut path)" style="html=1;endArrow=open;endFill=0;dashed=1;dashPattern=6 5;strokeColor=#b45309;strokeWidth=3;fontSize=12;fontColor=#b45309;fontStyle=0;labelBackgroundColor=#fff8ec;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="348" y="748" as="sourcePoint"/>
+                        <mxPoint x="347" y="196" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="fpSat12" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fffbea;strokeColor=#d97706;dashed=1;dashPattern=8 6;strokeWidth=2;opacity=30;" parent="1" vertex="1">
+                    <mxGeometry x="56" y="718" width="560" height="116" as="geometry"/>
+                </mxCell>
+                <mxCell id="fpLabel" value="SAT-12 coverage footprint  (~4,700 km diam., ~10 min/pass)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;fontColor=#b45309;" parent="1" vertex="1">
+                    <mxGeometry x="62" y="832" width="500" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2eCaption" value="gw2gw E2E Path:  GW-A  →①  Feeder Link  →  SAT-12  →②  ISL (intra)  →  SAT-13  →③  ISL (cross-plane)  →  SAT-23  →④  ISL (intra)  →  SAT-24  →⑤  Feeder Link  →  GW-B  →⑥  Backhaul  →  Core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d97706;strokeWidth=1.5;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#92400e;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="862" width="1540" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="factsHdr" value="Iridium-66 Parameters (used in simulation)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontStyle=1;fontColor=#1e3a5f;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="906" width="380" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="facts" value="• 66 active LEO satellites  (6 planes × 11 sats/plane, + 6 spares)&#xa;• Altitude: ~780 km  |  Orbital period: ~100.5 min  |  Inclination: 86.4°&#xa;• Footprint: ~4,700 km diameter/satellite  |  Pass duration: ~10 min&#xa;• ISL: 4 links/satellite (2 intra-plane: fwd/aft  +  2 cross-plane: L/R)&#xa;• Threshold: ISL eligible if distance ≤ 5,000 km  (132 total ISL links)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;fontColor=#334155;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="926" width="700" height="76" as="geometry"/>
+                </mxCell>
+                <mxCell id="legendBox" value="Legend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;strokeWidth=1;fontStyle=1;fontSize=14;align=left;spacingLeft=12;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="748" y="902" width="832" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="l1" value="" style="html=1;endArrow=none;strokeColor=#94a3b8;strokeWidth=2.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="766" y="930" as="sourcePoint"/>
+                        <mxPoint x="826" y="930" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l1t" value="Intra-plane ISL" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="830" y="920" width="138" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="l2" value="" style="html=1;endArrow=none;strokeColor=#b0c4de;strokeWidth=1.5;dashed=1;dashPattern=7 5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="766" y="955" as="sourcePoint"/>
+                        <mxPoint x="826" y="955" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l2t" value="Cross-plane ISL" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="830" y="945" width="138" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3" value="" style="html=1;endArrow=none;strokeColor=#15803d;strokeWidth=3;dashed=1;dashPattern=10 6;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="980" y="930" as="sourcePoint"/>
+                        <mxPoint x="1040" y="930" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l3t" value="Feeder Link (Ka-band)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="1044" y="920" width="168" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="l4" value="" style="html=1;endArrow=none;strokeColor=#b45309;strokeWidth=2.5;dashed=1;dashPattern=6 5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="980" y="955" as="sourcePoint"/>
+                        <mxPoint x="1040" y="955" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l4t" value="Service Link (L-band)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="1044" y="945" width="168" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="l5" value="" style="html=1;endArrow=none;strokeColor=#475569;strokeWidth=2.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1228" y="930" as="sourcePoint"/>
+                        <mxPoint x="1288" y="930" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l5t" value="Terrestrial Backhaul" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="1292" y="920" width="168" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="l6" value="" style="html=1;endArrow=open;endFill=0;strokeColor=#d97706;strokeWidth=4;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1228" y="955" as="sourcePoint"/>
+                        <mxPoint x="1288" y="955" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l6t" value="E2E path (gw2gw)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="1292" y="945" width="168" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="pathTypeNote" value="Supported E2E path types:  gw2gw  |  gw2sat  |  sat2gw  |  sat2sat  |  gw2ut  |  sat2ut" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#15803d;strokeWidth=1.5;fontSize=13;fontColor=#14532d;fontStyle=2;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1012" width="1540" height="28" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

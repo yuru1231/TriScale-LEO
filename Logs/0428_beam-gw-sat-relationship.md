@@ -318,3 +318,113 @@ physical GW node 已經有 5 個
 ## 一句話總結
 
 code trace 確認：在這個 repo 的 SNS3 constellation 流程中，`beam` 不只是 sat 上的波束編號，而是用來決定哪個 satellite coverage / feeder chain 要接哪個 GW的建立入口。原版 `test-iridium-e2e.cc` 只啟用單一 beam，因此只有那個 beam 對應到的 GW 會在 install 過程中被註冊成 `SatTopology` 裡的 physical GW node；其他 GW 雖然可能存在於 routing preset 或 candidate node 集合中，但沒有被實際 bootstrap 進 topology，所以 `GetGwNodesById(gwId)` 會抓不到。修正版透過 `BuildGatewayBootstrapBeamSet()` 額外開啟每個 GW 的 representative beam，才讓所有 physical GW node 都被完整註冊進 `SatTopology`。
+
+---
+
+## 第二次修正：beam 數精簡（效能修正）
+
+### 問題
+
+修正版原本把 `bootstrapGwCount` 設成 `GetGatewayPresets().size()` = 5，導致 5 個 GW 全部被 bootstrap，啟用 5–6 個 beam。
+
+每多一個 beam，SNS3 會對 66 顆衛星各多建一套 MAC/DAMA/RBDC/TDMA timer 事件。  
+結果 wall time 從 ~34 分鐘膨脹到預估 ~2.9–3.4 小時。
+
+### 修正邏輯
+
+`gw2gw_e2e` 實際只需要 gwSrc + gwDst 兩個 physical GW node，其餘 GW 的 beam 對路由和封包結果毫無影響。  
+因此改為依 `pathType` 動態決定需要幾個 GW：
+
+**修改位置：** `test-iridium-e2e-fix.cc` `main()` 中 beam 設定段落
+
+```cpp
+// Before（啟動全部 5 個 GW 的 bootstrap beam）
+const std::set<uint32_t> enabledBeamSet =
+    BuildGatewayBootstrapBeamSet(rtnConfFilePath, GetGatewayPresets().size(), beamId);
+
+// After（只啟動本次 path 實際需要的 GW 數量）
+// Only activate beams for the GWs actually used in this path (1 for single-GW paths,
+// 2 for gw2gw). Activating all 5 GW beams multiplies satellite MAC/DAMA/RBDC events
+// by ~5x and inflates wall time from ~12 min to ~3 hours.
+const uint32_t bootstrapGwCount = GetPathTypeSpec(pathType).needsGwPair ? 2 : 1;
+const std::set<uint32_t> enabledBeamSet =
+    BuildGatewayBootstrapBeamSet(rtnConfFilePath, bootstrapGwCount, beamId);
+```
+
+```cpp
+// Before（GwUsers 固定等於全部 preset 數量）
+Config::SetDefault("ns3::SatHelper::GwUsers",
+                   UintegerValue(static_cast<uint32_t>(GetGatewayPresets().size())));
+
+// After（與 bootstrapGwCount 對齊）
+// Match GwUsers to bootstrapGwCount: only create user-side GW nodes for active GWs.
+const uint32_t gwUsersNeeded = GetPathTypeSpec(pathType).needsGwPair ? 2 : 1;
+Config::SetDefault("ns3::SatHelper::GwUsers",
+                   UintegerValue(gwUsersNeeded));
+```
+
+### pathType 對應表
+
+| pathType | needsGwPair | bootstrapGwCount | GwUsers |
+|----------|------------|------------------|---------|
+| gw2gw_e2e | true | 2 | 2 |
+| gw2sat / sat2gw / gw2ut_e2e / sat2ut | false | 1 | 1 |
+| sat2sat | false | 1 | 1 |
+
+---
+
+## 模擬驗證
+
+**執行指令：**
+```bash
+stdbuf -oL ./ns3 run 'scratch/test-iridium --pathType=gw2gw_e2e --gwMode=physical \
+  --simTime=120 --trafficStop=119 --delayCsvPath=real_delay_physical.csv' \
+  2>&1 | tee run_fix.log
+```
+
+**Log 來源：** `Topology & ISL Routing/Outputs/run_fix.log`
+
+### Topology Bootstrap 確認
+
+```
+[TOPO_BOOTSTRAP] enabledBeams={1,2,72}  gatewayPresets=5  primaryBeamId=72
+[TOPO] physicalGwNodes=2  utUserNodes=91
+[TOPO] logicalGwId=0  gwUserNode=present  physicalGwNode=present
+[TOPO] logicalGwId=1  gwUserNode=present  physicalGwNode=present
+```
+
+修正正確生效：beam 數從 5–6 降為 3，physical GW node 只建了 gwSrc=0 + gwDst=1 兩個。
+
+### 路由結果
+
+GW0(JP-Tokyo) → GW1(IN-NewDelhi)，3 個 slot 全部有效路由：
+
+| slot | time(s) | ISL path | isl_cost(s) |
+|------|---------|----------|-------------|
+| 0 | 0 | 45→46→35→34→33 | 0.047382 |
+| 1 | 60 | 15→14→3→4 | 0.037122 |
+| 2 | 120 | 45→34→33 | 0.029282 |
+
+slot=1, slot=2 都觸發 `HasSignificantChange=YES`，routing table 動態切換，recompute 分別 16/66 和 19/66 顆衛星。
+
+### 三層 Verdict
+
+```
+[ROUTING_LAYER] PASS | validSlots=3/3
+[ISL_LAYER]     PASS | scopedLinks=16  scopedRxPkts=511250
+[PACKET_LAYER]  PASS | traceRxPkts=1181  traceRxBytes=604672  delaySamples=1181
+```
+
+封包：GW0(40.1.0.1) → GW1(40.67.0.1)，1181 封包送達，ISL 全程零掉包（8,266,570 pkts, drop_rate=0.000%）。
+
+### Wall Time 對比
+
+| 版本 | Beam 數 | Wall Time |
+|------|---------|-----------|
+| 修正前（全部 GW bootstrap） | 5–6 | 預估 ~2.9–3.4 小時 |
+| **修正後（只 bootstrap 需要的 GW）** | **3** | **實測 3205.704s ≈ 53.4 分鐘** |
+
+### 待確認項目
+
+`avgOneWayDelayMs=0.010ms`（最小 0ms，最大 12ms）對於 Tokyo→NewDelhi 多跳 ISL 路由偏低，實際衛星傳播延遲預期應在 ~150–300ms 範圍。  
+需進一步確認 `gwMode=physical` 下 `Gw2GwTxTimeTag` 是否確實量測到完整的 satellite propagation delay，而非僅計算 NS-3 internal 轉發時間。

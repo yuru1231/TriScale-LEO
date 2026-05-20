@@ -21,6 +21,12 @@
 
 #include "ns3/double.h"
 #include "ns3/drop-tail-queue.h"
+#include "ns3/ipv4-routing-table-entry.h"
+#include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/ipv4-static-routing.h"
+#include "ns3/ipv4.h"
+#include "ns3/net-device.h"
+#include "ns3/node.h"
 #include "ns3/packet.h"
 #include "ns3/satellite-isl-arbiter-unicast.h"
 #include "ns3/simulator.h"
@@ -51,6 +57,33 @@ bool
 HasIslTransitPath(const std::vector<uint32_t>& satPath)
 {
     return satPath.size() > 1;
+}
+
+std::vector<uint32_t>
+FilterGwEntrySats(const std::set<uint32_t>& visibleSats,
+                  const std::set<uint32_t>*  feederSats)
+{
+    if (!feederSats || feederSats->empty())
+    {
+        return std::vector<uint32_t>(visibleSats.begin(), visibleSats.end());
+    }
+
+    std::vector<uint32_t> filtered;
+    filtered.reserve(visibleSats.size());
+    for (uint32_t satId : visibleSats)
+    {
+        if (feederSats->count(satId) > 0)
+        {
+            filtered.push_back(satId);
+        }
+    }
+
+    if (!filtered.empty())
+    {
+        return filtered;
+    }
+
+    return std::vector<uint32_t>(feederSats->begin(), feederSats->end());
 }
 
 } // namespace
@@ -289,6 +322,20 @@ IslRoutingManager::ApplyRoutingTable(uint32_t slotIndex)
     }
 
     RebuildIslSources(slotIndex);
+
+    // NOTE: InstallSatIpRoutesForGwPairs() is intentionally NOT called here.
+    //
+    // SNS3 REGENERATION_NETWORK ISL forwarding does NOT go through
+    // ns-3 Ipv4StaticRouting on satellite nodes. The actual forwarding path is:
+    //   SatGwLlc::Enque → SatGroundStationAddressTag(dest_MAC)
+    //   → SatOrbiterNetDevice::ReceivePacketFeeder → SendToIsl()
+    //   → SatIslArbiterUnicast: GetSatIdWithMacIsl(dest_MAC) → exitSatId
+    //   → m_nextHop[exitSatId] → ISL interface index
+    //
+    // The tag-based forwarding is handled at the device level, bypassing
+    // Ipv4StaticRouting entirely for in-transit packets. Adding Ipv4StaticRouting
+    // entries on satellite nodes would have no effect on this path.
+    // The function is kept defined for potential future diagnostic use.
 
     long applyMs = WALL_END_MS(apply);
 
@@ -811,6 +858,205 @@ IslRoutingManager::InitOrbiterDevices()
     CHKPT("InitOrbiterDevices: done | satellites=" << m_numSatellites);
 }
 
+// ── GW Node Registration & Satellite IP Route Installation ────────────────
+
+void
+IslRoutingManager::RegisterGwNode(uint32_t gwId, Ptr<Node> gwNode)
+{
+    NS_ABORT_MSG_IF(!gwNode, "RegisterGwNode: null node for gwId=" << gwId);
+    m_gwNodes[gwId] = gwNode;
+    CHKPT("RegisterGwNode: gwId=" << gwId << " nodeId=" << gwNode->GetId());
+}
+
+void
+IslRoutingManager::InstallSatIpRoutesForGwPairs(uint32_t slotIndex)
+{
+    // No GW nodes registered → nothing to do
+    if (m_gwNodes.empty())
+    {
+        return;
+    }
+
+    if (slotIndex >= m_gwRoutes.size())
+    {
+        return;
+    }
+
+    for (const auto& kv : m_gwRoutes[slotIndex])
+    {
+        const GwToGwRoute& route = kv.second;
+        if (!route.valid)
+        {
+            continue;
+        }
+
+        uint32_t srcGwId = kv.first.first;
+        uint32_t dstGwId = kv.first.second;
+
+        // Resolve the destination GW node
+        auto gwNodeIt = m_gwNodes.find(dstGwId);
+        if (gwNodeIt == m_gwNodes.end() || !gwNodeIt->second)
+        {
+            std::cout << "[SAT_ROUTE] slot=" << slotIndex
+                      << " dstGwId=" << dstGwId
+                      << " not registered via RegisterGwNode — skip\n";
+            continue;
+        }
+
+        Ptr<Node> gwNode = gwNodeIt->second;
+        Ptr<Ipv4> gwIpv4 = gwNode->GetObject<Ipv4>();
+        if (!gwIpv4)
+        {
+            std::cout << "[SAT_ROUTE] WARNING: no Ipv4 stack on gwNode for dstGwId="
+                      << dstGwId << "\n";
+            continue;
+        }
+
+        // Find the first routable feeder interface on the destination GW
+        Ipv4Address gwNetwork;
+        Ipv4Mask    gwMask;
+        bool        subnetFound = false;
+
+        for (uint32_t i = 0; i < gwIpv4->GetNInterfaces(); ++i)
+        {
+            if (!gwIpv4->IsUp(i) || gwIpv4->GetNAddresses(i) == 0)
+            {
+                continue;
+            }
+            Ipv4Address addr = gwIpv4->GetAddress(i, 0).GetLocal();
+            if (addr == Ipv4Address("127.0.0.1") || addr == Ipv4Address("0.0.0.0"))
+            {
+                continue;
+            }
+
+            gwMask    = gwIpv4->GetAddress(i, 0).GetMask();
+            gwNetwork = addr.CombineMask(gwMask);
+            subnetFound = true;
+
+            std::cout << "[SAT_ROUTE] slot=" << slotIndex
+                      << " srcGw=" << srcGwId << " dstGw=" << dstGwId
+                      << " feeder subnet=" << gwNetwork << "/" << gwMask
+                      << " satPath=[ ";
+            for (uint32_t s : route.satPath) std::cout << s << " ";
+            std::cout << "]\n";
+            break;
+        }
+
+        if (!subnetFound)
+        {
+            std::cout << "[SAT_ROUTE] WARNING: no feeder subnet found for dstGwId="
+                      << dstGwId << "\n";
+            continue;
+        }
+
+        // Install IP route on each intermediate satellite (all except the exit satellite).
+        // The exit satellite already has a connected route for the GW feeder subnet via
+        // its own SatNetDevice / feeder interface installed by SNS3 at scenario creation.
+        const std::vector<uint32_t>& path = route.satPath;
+
+        for (size_t hop = 0; hop + 1 < path.size(); ++hop)
+        {
+            uint32_t satId  = path[hop];
+            Ptr<Node> satNode = m_orbNodes[satId];
+
+            Ptr<Ipv4> satIpv4 = satNode->GetObject<Ipv4>();
+            if (!satIpv4)
+            {
+                std::cout << "[SAT_ROUTE] WARNING: no Ipv4 on sat=" << satId
+                          << " (hop " << hop << ")\n";
+                continue;
+            }
+
+            // Locate the SatOrbiterNetDevice interface index.
+            // SatOrbiterNetDevice is the single "compound" device that owns both
+            // feeder and ISL sub-devices; the arbiter (already configured) decides
+            // which ISL link to use once the IP stack hands the packet to this device.
+            uint32_t satOrbIfIdx = UINT32_MAX;
+            for (uint32_t j = 0; j < satIpv4->GetNInterfaces(); ++j)
+            {
+                Ptr<NetDevice> dev = satIpv4->GetNetDevice(j);
+                if (!dev) continue;
+                Ptr<SatOrbiterNetDevice> orbDev = DynamicCast<SatOrbiterNetDevice>(dev);
+                if (orbDev)
+                {
+                    satOrbIfIdx = j;
+                    break;
+                }
+            }
+
+            if (satOrbIfIdx == UINT32_MAX)
+            {
+                std::cout << "[SAT_ROUTE] WARNING: SatOrbiterNetDevice not found on sat="
+                          << satId << " (hop " << hop << ")\n";
+                continue;
+            }
+
+            Ipv4StaticRoutingHelper helper;
+            Ptr<Ipv4StaticRouting> satRouting = helper.GetStaticRouting(satIpv4);
+            if (!satRouting)
+            {
+                std::cout << "[SAT_ROUTE] WARNING: no Ipv4StaticRouting on sat="
+                          << satId << " (hop " << hop << ")\n";
+                continue;
+            }
+
+            // Remove stale routes for this subnet installed in a previous slot.
+            // Iterate backwards to keep indices valid after RemoveRoute().
+            uint32_t nRoutes = satRouting->GetNRoutes();
+            for (uint32_t r = nRoutes; r > 0; --r)
+            {
+                Ipv4RoutingTableEntry entry = satRouting->GetRoute(r - 1);
+                if (entry.GetDest()            == gwNetwork &&
+                    entry.GetDestNetworkMask() == gwMask)
+                {
+                    satRouting->RemoveRoute(r - 1);
+                }
+            }
+
+            // Install fresh route: dstGW subnet → SatOrbiterNetDevice (no gateway needed;
+            // SatOrbiterNetDevice routes internally via the arbiter without ARP).
+            satRouting->AddNetworkRouteTo(gwNetwork, gwMask, satOrbIfIdx);
+
+            std::cout << "[SAT_ROUTE] slot=" << slotIndex
+                      << " sat=" << satId
+                      << " INSTALLED: dst=" << gwNetwork << "/" << gwMask
+                      << " orbifIdx=" << satOrbIfIdx
+                      << " (next hop in path: sat" << path[hop + 1] << ")\n";
+        }
+
+        // Verify exit satellite has a route covering the dstGW subnet.
+        // SNS3 should install this as a connected route during scenario creation.
+        uint32_t     exitSatId   = route.exitSatId;
+        Ptr<Node>    exitNode    = m_orbNodes[exitSatId];
+        Ptr<Ipv4>    exitIpv4   = exitNode->GetObject<Ipv4>();
+
+        if (exitIpv4)
+        {
+            Ipv4StaticRoutingHelper exitHelper;
+            Ptr<Ipv4StaticRouting>  exitRouting = exitHelper.GetStaticRouting(exitIpv4);
+            bool hasExitRoute = false;
+            if (exitRouting)
+            {
+                for (uint32_t r = 0; r < exitRouting->GetNRoutes(); ++r)
+                {
+                    Ipv4RoutingTableEntry e = exitRouting->GetRoute(r);
+                    Ipv4Address eNet = e.GetDest().CombineMask(e.GetDestNetworkMask());
+                    if (eNet == gwNetwork && e.GetDestNetworkMask() == gwMask)
+                    {
+                        hasExitRoute = true;
+                        break;
+                    }
+                }
+            }
+            std::cout << "[SAT_ROUTE] slot=" << slotIndex
+                      << " exitSat=" << exitSatId
+                      << " route for " << gwNetwork << "/" << gwMask
+                      << " = " << (hasExitRoute ? "PRESENT (ok)" : "MISSING (will fail at exit)")
+                      << "\n";
+        }
+    }
+}
+
 // ── Stats ─────────────────────────────────────────────────────────────────
 
 void
@@ -1192,6 +1438,43 @@ IslRoutingManager::SetGwElevationThreshold(double deg)
     m_gwElevThreshDeg = deg;
 }
 
+std::set<uint32_t>
+IslRoutingManager::GetRequiredGwFeederSats(uint32_t gwSrc, uint32_t gwDst) const
+{
+    std::set<uint32_t> result;
+    for (uint32_t k = 0; k < m_gwRoutes.size(); ++k)
+    {
+        // AB direction
+        auto itAB = m_gwRoutes[k].find({gwSrc, gwDst});
+        if (itAB != m_gwRoutes[k].end() && itAB->second.valid)
+        {
+            result.insert(itAB->second.entrySatId);
+            result.insert(itAB->second.exitSatId);
+        }
+        // BA direction (reverse path may use different entry/exit)
+        auto itBA = m_gwRoutes[k].find({gwDst, gwSrc});
+        if (itBA != m_gwRoutes[k].end() && itBA->second.valid)
+        {
+            result.insert(itBA->second.entrySatId);
+            result.insert(itBA->second.exitSatId);
+        }
+    }
+    CHKPT("GetRequiredGwFeederSats: gwSrc=" << gwSrc
+           << " gwDst=" << gwDst
+           << " requiredSats=" << result.size());
+    return result;
+}
+
+void
+IslRoutingManager::SetGwFeederSats(uint32_t gwId, const std::set<uint32_t>& validSats)
+{
+    // 記錄 gwId 有 active feeder channel 的衛星集合。
+    // PrecomputeGwRoutes() 會與仰角可見集合取交集，僅允許這些衛星作為 entry/exit 候選。
+    // 若 validSats 為空則不套用 feeder 限制（允許所有仰角可見衛星）。
+    m_gwFeederSats[gwId] = validSats;
+    CHKPT("SetGwFeederSats: gwId=" << gwId << " feederSats=" << validSats.size());
+}
+
 const std::set<uint32_t>&
 IslRoutingManager::GetGwVisibleSats(uint32_t gwId, uint32_t slotIndex) const
 {
@@ -1265,13 +1548,48 @@ IslRoutingManager::PrecomputeGwRoutes()
             const auto& srcSatsBA = dstSatsAB;
             const auto& dstSatsBA = srcSatsAB;
 
+            // feederFilter: candidate entry/exit satellites for a GW at a given slot.
+            //
+            // Strategy: prefer the intersection of (elevation-visible sats) with
+            // (rtnConf feeder set). A satellite must be both assigned to the GW by
+            // rtnConf AND above the elevation threshold so the SNS3 feeder link is
+            // actually UP at that slot. If the intersection is empty (all assigned
+            // feeder sats are currently below the horizon), fall back to the full
+            // feeder set so we always produce at least one candidate; the caller
+            // accepts the risk that the link may be marginal.
+            auto feederFilter = [&](const std::set<uint32_t>& vis,
+                                    uint32_t                  gId) -> std::vector<uint32_t>
+            {
+                auto fit = m_gwFeederSats.find(gId);
+                if (fit == m_gwFeederSats.end() || fit->second.empty())
+                {
+                    // No feeder set configured: fall back to elevation-visible sats.
+                    return std::vector<uint32_t>(vis.begin(), vis.end());
+                }
+                // Prefer intersection: only sats that are both elevation-visible
+                // AND in the rtnConf feeder set for this GW.
+                std::vector<uint32_t> result;
+                for (uint32_t s : vis)
+                    if (fit->second.count(s))
+                        result.push_back(s);
+                if (!result.empty())
+                    return result;
+                // Fallback: no sat meets both criteria this slot.
+                return std::vector<uint32_t>(fit->second.begin(), fit->second.end());
+            };
+
+            std::vector<uint32_t> entryCandAB = feederFilter(srcSatsAB, gwA);
+            std::vector<uint32_t> exitCandAB  = feederFilter(dstSatsAB, gwB);
+            std::vector<uint32_t> entryCandBA = feederFilter(srcSatsBA, gwB);
+            std::vector<uint32_t> exitCandBA  = feederFilter(dstSatsBA, gwA);
+
             GwToGwRoute bestAB;
             bestAB.srcGwId = gwA;
             bestAB.dstGwId = gwB;
 
-            for (uint32_t entry : srcSatsAB)
+            for (uint32_t entry : entryCandAB)
             {
-                for (uint32_t exit : dstSatsAB)
+                for (uint32_t exit : exitCandAB)
                 {
                     double cost = (entry == exit)
                                       ? 0.0
@@ -1294,9 +1612,9 @@ IslRoutingManager::PrecomputeGwRoutes()
             bestBA.srcGwId = gwB;
             bestBA.dstGwId = gwA;
 
-            for (uint32_t entry : srcSatsBA)
+            for (uint32_t entry : entryCandBA)
             {
-                for (uint32_t exit : dstSatsBA)
+                for (uint32_t exit : exitCandBA)
                 {
                     double cost = (entry == exit)
                                       ? 0.0
@@ -1322,8 +1640,15 @@ IslRoutingManager::PrecomputeGwRoutes()
         std::cout << "[GwRouting] slot=" << k
                   << " t=" << tau.GetSeconds() << "s";
         for (const auto& gw : m_gws)
+        {
+            uint32_t visCnt = static_cast<uint32_t>(GetGwVisibleSats(gw.gwId, k).size());
+            auto fit = m_gwFeederSats.find(gw.gwId);
+            uint32_t candCnt = (fit != m_gwFeederSats.end() && !fit->second.empty())
+                                   ? static_cast<uint32_t>(fit->second.size())
+                                   : visCnt;
             std::cout << " GW" << gw.gwId << "[" << gw.name << "]="
-                      << GetGwVisibleSats(gw.gwId, k).size() << "sats";
+                      << visCnt << "vis/" << candCnt << "cand";
+        }
         std::cout << "\n";
     }
 
@@ -1594,7 +1919,11 @@ IslRoutingManager::PrecomputeGwUtRoutes()
             uint32_t gwId = p.first;
             uint32_t utId = p.second;
 
-            const auto& entrySats   = GetGwVisibleSats(gwId, k);
+            auto feederIt = m_gwFeederSats.find(gwId);
+            const std::set<uint32_t>* feederSats =
+                (feederIt != m_gwFeederSats.end()) ? &feederIt->second : nullptr;
+            const std::vector<uint32_t> entrySats =
+                FilterGwEntrySats(GetGwVisibleSats(gwId, k), feederSats);
             const auto& servingSats = GetUtVisibleSats(utId, k);
 
             GwToUtRoute best;
@@ -1732,7 +2061,11 @@ IslRoutingManager::RefreshGwRoutesForSlot(uint32_t slotIndex)
             uint32_t gwId = p.first;
             uint32_t utId = p.second;
 
-            const auto& entrySats   = GetGwVisibleSats(gwId, slotIndex);
+            auto feederIt = m_gwFeederSats.find(gwId);
+            const std::set<uint32_t>* feederSats =
+                (feederIt != m_gwFeederSats.end()) ? &feederIt->second : nullptr;
+            const std::vector<uint32_t> entrySats =
+                FilterGwEntrySats(GetGwVisibleSats(gwId, slotIndex), feederSats);
             const auto& servingSats = GetUtVisibleSats(utId, slotIndex);
 
             GwToUtRoute best;

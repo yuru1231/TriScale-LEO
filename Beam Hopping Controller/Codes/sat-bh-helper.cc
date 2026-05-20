@@ -22,10 +22,23 @@
 #include "ns3/simulator.h"
 #include "ns3/uinteger.h"
 
+// Phase E: SNS3 module headers for real callback wiring
+#include "ns3/satellite-beam-helper.h"         // SatBeamHelper::GetBeams(), GetNcc()
+#include "ns3/satellite-beam-scheduler.h"      // SatBeamScheduler::BacklogRequestsTrace (Phase F)
+#include "ns3/satellite-id-mapper.h"           // SatIdMapper::GetUtIdWithMac (Phase F)
+#include "ns3/satellite-net-device.h"          // SatNetDevice: UT MAC address lookup
+#include "ns3/satellite-ncc.h"                 // SatNcc::MoveUtBetweenBeams, GetBeamScheduler
+#include "ns3/satellite-orbiter-net-device.h"  // SatOrbiterNetDevice::GetUserPhy
+#include "ns3/satellite-phy.h"                 // SatPhy::SetTxMaxPowerDbw + Initialize
+#include "ns3/satellite-topology.h"            // SatTopology: GetUtNodes, GetUtBeamId
+#include "ns3/simulation-helper.h"             // SimulationHelper::GetSatelliteHelper
+#include "ns3/singleton.h"                     // Singleton<SatTopology/SatIdMapper>::Get()
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <sstream>   // std::istringstream for OnBacklogRequestTrace parsing
 
 namespace ns3
 {
@@ -48,7 +61,7 @@ SatBhHelper::SatBhHelper()
       m_installed(false)
 {
     // Default config is Phase 1 only (basic validation scenario)
-    m_cfg.numBeams         = 7;
+    m_cfg.numBeams         = 2;   // Iridium-66: max 2 beams per satellite
     m_cfg.maxActiveBeams   = 2;   // K=2 for basic scenario
     m_cfg.numHotspotBeams  = 3;
     m_cfg.satId            = 0;
@@ -122,6 +135,29 @@ void
 SatBhHelper::SetCacheQueueEnabled(bool enable)
 {
     m_cfg.enableCacheQueue = enable;
+}
+
+void
+SatBhHelper::SetResourceManagerEnabled(bool enable)
+{
+    m_cfg.enableResourceManager = enable;
+}
+
+void
+SatBhHelper::SetSimulationHelper(Ptr<SimulationHelper> simHelper)
+{
+    // Store pointer so ConnectTracesPhaseE() can reach SatNcc and topology.
+    // Must be called before Install() when enablePhaseE=true.
+    m_simHelper = simHelper;
+}
+
+void
+SatBhHelper::SetFrameConfigCallback(FrameConfigCallback cb)
+{
+    m_frameConfigCb = cb;
+    // Forward immediately if ResourceManager already exists
+    if (m_resourceManager)
+        m_resourceManager->SetFrameConfigCallback(cb);
 }
 
 // ── Installation ──────────────────────────────────────────────────────────
@@ -217,6 +253,73 @@ SatBhHelper::Install()
         Simulator::Schedule(Seconds(0.0), &SatBhHelper::ApplySyntheticDemand, this);
     }
 
+    // ── Phase C setup ─────────────────────────────────────────────────────
+    if (m_cfg.enableResourceManager)
+        SetupPhaseC();
+
+    // ── Phase D setup ─────────────────────────────────────────────────────
+    // Requires Phase C (ResourceManager) to be active so the allocator can
+    // be wired into m_resourceManager.
+    if (m_cfg.enablePowerAllocation)
+    {
+        if (!m_resourceManager)
+        {
+            NS_LOG_WARN("SatBhHelper: enablePowerAllocation=true but"
+                        " enableResourceManager=false — Phase D skipped."
+                        " Add --enableResourceManager=1 to activate.");
+        }
+        else
+        {
+            SetupPhaseD();
+        }
+    }
+
+    // ── Phase E wiring ────────────────────────────────────────────────────
+    // Wires MoveUtCallback → SatNcc and ApplyPowerCallback → SatOrbiterUserPhy.
+    // Requires Phase C (ResourceManager + UserAssociator) to be active.
+    // Requires SetSimulationHelper() called before Install().
+    if (m_cfg.enablePhaseE)
+    {
+        if (!m_resourceManager)
+        {
+            NS_LOG_WARN("SatBhHelper: enablePhaseE=true but enableResourceManager=false"
+                        " — Phase E skipped. Add --enableResourceManager=1.");
+        }
+        else if (!m_simHelper)
+        {
+            NS_LOG_WARN("SatBhHelper: enablePhaseE=true but SetSimulationHelper() not called"
+                        " — Phase E skipped. Call bhHelper->SetSimulationHelper(simHelper)"
+                        " before Install().");
+        }
+        else
+        {
+            ConnectTracesPhaseE();
+        }
+    }
+
+    // ── Phase F wiring ────────────────────────────────────────────────────
+    // Connects BacklogRequestsTrace on every SatBeamScheduler so that real
+    // RBDC demand replaces the synthetic 0.0 fallback in PollUtStates().
+    // Requires Phase E (which calls BuildUtAddressMap and populates the
+    // SatIdMapper reverse-lookup m_satMapperIdToContainerIdx).
+    if (m_cfg.enablePhaseF)
+    {
+        if (!m_cfg.enablePhaseE)
+        {
+            NS_LOG_WARN("SatBhHelper: enablePhaseF=true but enablePhaseE=false"
+                        " — Phase F skipped. Add --enablePhaseE=1.");
+        }
+        else if (!m_simHelper)
+        {
+            NS_LOG_WARN("SatBhHelper: enablePhaseF=true but SetSimulationHelper() not called"
+                        " — Phase F skipped.");
+        }
+        else
+        {
+            ConnectTracesPhaseF();
+        }
+    }
+
     NS_LOG_INFO("SatBhHelper::Install() complete");
 }
 
@@ -277,7 +380,7 @@ SatBhHelper::BuildStaticBhtp(Time periodStart)
         slot.duration   = T_s;
         slot.modcod     = 5;  // placeholder MODCOD
 
-        // Fill up to K beams: alternate hotspot / non-hotspot
+        // Fill up to K beams: alternate hotspot / non-hotspot, with per-beam pattern
         for (uint32_t k = 0; k < K; k++)
         {
             if (k % 2 == 0 && !hotspot.empty())
@@ -285,7 +388,8 @@ SatBhHelper::BuildStaticBhtp(Time periodStart)
                 uint32_t bid = hotspot[hotIdx % hotspot.size()];
                 slot.beamIds.push_back(bid);
                 slot.clusterIds.push_back(bid);
-                slot.beamRadius = BeamRadiusType::SMALL;
+                // Hotspot → SMALL: narrow beam concentrates gain on high-demand area
+                slot.SetBeamPattern(bid, BeamRadiusType::SMALL);
                 if (k == 0) hotIdx++;
             }
             else if (!nonHotspot.empty())
@@ -293,9 +397,8 @@ SatBhHelper::BuildStaticBhtp(Time periodStart)
                 uint32_t bid = nonHotspot[nonHotIdx % nonHotspot.size()];
                 slot.beamIds.push_back(bid);
                 slot.clusterIds.push_back(bid);
-                // Use LARGE for non-hotspot; first beam in slot sets dominant radius
-                if (slot.beamRadius != BeamRadiusType::SMALL)
-                    slot.beamRadius = BeamRadiusType::LARGE;
+                // Non-hotspot → LARGE: wide beam provides coverage over low-demand area
+                slot.SetBeamPattern(bid, BeamRadiusType::LARGE);
                 nonHotIdx++;
             }
         }
@@ -530,6 +633,504 @@ SatBhHelper::SetupPrecoder()
     m_precoder = CreateObject<SatBhPrecoder>();
     m_precoder->SetEnabled(m_cfg.enablePrecoder);
     m_precoder->SetAttribute("NoisePowerDb", DoubleValue(m_cfg.noisePowerDb));
+}
+
+// ── Phase C setup ────────────────────────────────────────────────────────
+//
+// Wiring order:
+//   1. SatL1RoutingInterface  — stub (Enabled=false); Phase E activates ISL queries
+//   2. SatUserAssociator      — WFQ/Priority/RR; MoveUtCallback unwired until Phase E
+//   3. SatResourceManager     — wired to scheduler + associator + L1;
+//                               Initialize() fires DoInitialize() which schedules
+//                               the first RunFrameOptimization at simulation time 0
+//
+void
+SatBhHelper::SetupPhaseC()
+{
+    NS_LOG_INFO("SatBhHelper::SetupPhaseC (Phase C active)");
+
+    // 1. L1 routing interface (stub)
+    m_l1Interface = CreateObject<SatL1RoutingInterface>();
+    m_l1Interface->SetAttribute("Enabled", BooleanValue(m_cfg.enablePatternSelection));
+    // enablePatternSelection doubles as the L1-protection gate until Phase E
+    // adds a dedicated flag; default false keeps it as a pure stub.
+    m_l1Interface->Initialize();
+
+    NS_LOG_DEBUG("SatBhHelper::SetupPhaseC: L1 interface created (stub)");
+
+    // 2. User associator
+    m_associator = CreateObject<SatUserAssociator>();
+    m_associator->SetSatId(m_cfg.satId);
+    m_associator->SetAttribute("SchedulingMode",
+                               UintegerValue(m_cfg.schedulingMode));
+    m_associator->SetAttribute("MaxReassignmentPerFrame",
+                               UintegerValue(m_cfg.maxReassignmentPerFrame));
+    m_associator->SetAttribute("MaxDelayMs",
+                               DoubleValue(m_cfg.maxDelayMs));
+    // MoveUtCallback is wired in Phase E when SatNcc pointer is available.
+    // Until then, ApplyAssociation() logs intended moves without calling SNS3.
+    m_associator->Initialize();
+
+    NS_LOG_INFO("SatBhHelper::SetupPhaseC: UserAssociator created"
+                << " mode=" << static_cast<int>(m_cfg.schedulingMode)
+                << " maxReassign=" << m_cfg.maxReassignmentPerFrame);
+
+    // 3. Resource manager — self-scheduling loop
+    m_resourceManager = CreateObject<SatResourceManager>();
+    m_resourceManager->SetAttribute("FrameDuration",
+                                    DoubleValue(m_cfg.bhtpPeriodMs));
+    m_resourceManager->SetAttribute("EnableUserAssociation",
+                                    BooleanValue(m_cfg.enableUserAssociation));
+    m_resourceManager->SetAttribute("EnablePatternSelection",
+                                    BooleanValue(m_cfg.enablePatternSelection));
+    m_resourceManager->SetAttribute("NominalKbpsPerSlot",
+                                    DoubleValue(m_cfg.nominalKbpsPerSlot));
+    m_resourceManager->SetAttribute("SatId",
+                                    UintegerValue(m_cfg.satId));
+
+    m_resourceManager->SetScheduler(m_scheduler);       // null if Phase 2 disabled; handled internally
+    m_resourceManager->SetUserAssociator(m_associator);
+    m_resourceManager->SetL1Interface(m_l1Interface);
+
+    if (m_frameConfigCb)
+        m_resourceManager->SetFrameConfigCallback(m_frameConfigCb);
+
+    // Initialize triggers DoInitialize() → Simulator::Schedule(t=0, RunFrameOptimization)
+    m_resourceManager->Initialize();
+
+    NS_LOG_INFO("SatBhHelper::SetupPhaseC: ResourceManager initialized"
+                << " T_frame=" << m_cfg.bhtpPeriodMs << "ms"
+                << " enableUserAssoc=" << m_cfg.enableUserAssociation);
+}
+
+// ── Phase D setup ────────────────────────────────────────────────────────
+//
+// Wiring order:
+//   1. Create SatPowerAllocator with attributes from BhExperimentConfig
+//   2. Wire into SatResourceManager via SetPowerAllocator()
+//   3. Enable power allocation loop via EnablePowerAllocation attribute
+//   4. ApplyPowerCallback left unwired until Phase E (SatOrbiterUserPhy hook)
+//
+void
+SatBhHelper::SetupPhaseD()
+{
+    NS_LOG_INFO("SatBhHelper::SetupPhaseD (Phase D active)");
+
+    // 1. Create power allocator
+    m_powerAllocator = CreateObject<SatPowerAllocator>();
+    m_powerAllocator->SetAttribute("TotalPowerBudgetDbm",
+                                   DoubleValue(m_cfg.totalPowerBudgetDbm));
+    m_powerAllocator->SetAttribute("NoisePowerDbw",
+                                   DoubleValue(m_cfg.noisePowerDbw));
+    m_powerAllocator->SetAttribute("MaxIterations",
+                                   UintegerValue(m_cfg.powerMaxIterations));
+    m_powerAllocator->SetAttribute("ConvergenceEpsilon",
+                                   DoubleValue(m_cfg.powerConvergenceEps));
+    m_powerAllocator->SetAttribute("InterferenceFactor",
+                                   DoubleValue(m_cfg.interferenceFactor));
+    m_powerAllocator->Initialize();
+
+    // ApplyPowerCallback is wired in Phase E when SatOrbiterUserPhy pointer
+    // is available via SatTopology.  Until then, ApplyPower() logs only.
+
+    // 2. Wire into ResourceManager
+    m_resourceManager->SetPowerAllocator(m_powerAllocator);
+    m_resourceManager->SetAttribute("EnablePowerAllocation", BooleanValue(true));
+
+    NS_LOG_INFO("SatBhHelper::SetupPhaseD: PowerAllocator wired into ResourceManager"
+                << " P_total=" << m_cfg.totalPowerBudgetDbm << "dBm"
+                << " N0=" << m_cfg.noisePowerDbw << "dBW"
+                << " maxIter=" << m_cfg.powerMaxIterations
+                << " eps=" << m_cfg.powerConvergenceEps
+                << " ici=" << m_cfg.interferenceFactor);
+}
+
+// ── Phase E: UT address map builder ──────────────────────────────────────
+//
+// For each UT node in SatTopology, find the first SatNetDevice and store its
+// MAC address keyed by the 0-based container index.
+// The same index is used as utId in PollUtStates() and in MoveUtCallback.
+//
+void
+SatBhHelper::BuildUtAddressMap()
+{
+    m_utAddressMap.clear();
+    m_satMapperIdToContainerIdx.clear(); // Phase F: rebuild together with address map
+
+    NodeContainer utNodes = Singleton<SatTopology>::Get()->GetUtNodes();
+    NS_LOG_INFO("SatBhHelper::BuildUtAddressMap: scanning " << utNodes.GetN() << " UT nodes");
+
+    for (uint32_t i = 0; i < utNodes.GetN(); i++)
+    {
+        Ptr<Node> utNode = utNodes.Get(i);
+        for (uint32_t d = 0; d < utNode->GetNDevices(); d++)
+        {
+            Ptr<SatNetDevice> satDev = DynamicCast<SatNetDevice>(utNode->GetDevice(d));
+            if (satDev)
+            {
+                Address addr = satDev->GetAddress();
+                m_utAddressMap[i] = addr;
+
+                // Phase F: build reverse map SatIdMapper UT ID -> container index.
+                // BacklogRequestsTrace embeds the SatIdMapper UT ID (GetUtIdWithMac),
+                // which differs from the container index used by PollUtStates.
+                int32_t satMapperId = Singleton<SatIdMapper>::Get()->GetUtIdWithMac(addr);
+                if (satMapperId >= 0)
+                {
+                    m_satMapperIdToContainerIdx[satMapperId] = i;
+                    NS_LOG_DEBUG("SatBhHelper::BuildUtAddressMap: utId=" << i
+                                 << " satMapperId=" << satMapperId
+                                 << " nodeId=" << utNode->GetId()
+                                 << " addr=" << addr);
+                }
+                else
+                {
+                    NS_LOG_WARN("SatBhHelper::BuildUtAddressMap: utId=" << i
+                                << " addr=" << addr
+                                << " not yet registered in SatIdMapper"
+                                << " — Phase F demand trace will miss this UT");
+                }
+                break; // one SatNetDevice per UT is sufficient
+            }
+        }
+        if (m_utAddressMap.find(i) == m_utAddressMap.end())
+            NS_LOG_WARN("SatBhHelper::BuildUtAddressMap: no SatNetDevice on UT node "
+                        << utNode->GetId() << " (utId=" << i << ")");
+    }
+
+    NS_LOG_INFO("SatBhHelper::BuildUtAddressMap: mapped " << m_utAddressMap.size()
+                << " of " << utNodes.GetN() << " UTs"
+                << "; satMapperIdToContainerIdx entries=" << m_satMapperIdToContainerIdx.size());
+}
+
+// ── Phase E: orbiter device cache ─────────────────────────────────────────
+//
+// Iterates devices on the configured satellite node to find the
+// SatOrbiterNetDevice, then caches it for use in ApplyPowerCallback.
+//
+void
+SatBhHelper::CacheOrbiterDevice()
+{
+    m_orbiterDev = nullptr;
+
+    Ptr<Node> satNode = Singleton<SatTopology>::Get()->GetOrbiterNode(m_cfg.satId);
+    if (!satNode)
+    {
+        NS_LOG_WARN("SatBhHelper::CacheOrbiterDevice: orbiter node not found for satId="
+                    << m_cfg.satId);
+        return;
+    }
+
+    for (uint32_t d = 0; d < satNode->GetNDevices(); d++)
+    {
+        m_orbiterDev = DynamicCast<SatOrbiterNetDevice>(satNode->GetDevice(d));
+        if (m_orbiterDev)
+        {
+            NS_LOG_INFO("SatBhHelper::CacheOrbiterDevice: found SatOrbiterNetDevice"
+                        " on sat " << m_cfg.satId
+                        << " (device index=" << d << ")");
+            return;
+        }
+    }
+
+    NS_LOG_WARN("SatBhHelper::CacheOrbiterDevice: SatOrbiterNetDevice not found on sat "
+                << m_cfg.satId << " — power callback will be log-only");
+}
+
+// ── Phase E: callback wiring ──────────────────────────────────────────────
+//
+// Wiring order:
+//   1. BuildUtAddressMap()  — container index → MAC Address
+//   2. CacheOrbiterDevice() — satellite's SatOrbiterNetDevice
+//   3. Wire MoveUtCallback → SatNcc::MoveUtBetweenBeams
+//   4. Wire ApplyPowerCallback → SatOrbiterUserPhy::SetTxMaxPowerDbw + Initialize
+//   5. Schedule PollUtStates() at t=0 (every T_frame thereafter)
+//
+void
+SatBhHelper::ConnectTracesPhaseE()
+{
+    NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseE (Phase E active)");
+
+    // 1 + 2: Build address map and cache orbiter device
+    BuildUtAddressMap();
+    CacheOrbiterDevice();
+
+    // 3. Wire MoveUtCallback → SatNcc::MoveUtBetweenBeams
+    //    Address lookup: m_utAddressMap[utId] (container index) → MAC address
+    if (m_associator && m_simHelper)
+    {
+        Ptr<SatNcc> ncc =
+            m_simHelper->GetSatelliteHelper()->GetBeamHelper()->GetNcc();
+
+        if (ncc)
+        {
+            m_associator->SetMoveUtCallback(
+                [this, ncc](uint32_t utId,
+                            uint32_t srcSatId, uint32_t srcBeamId,
+                            uint32_t dstSatId, uint32_t dstBeamId) {
+                    auto it = m_utAddressMap.find(utId);
+                    if (it == m_utAddressMap.end())
+                    {
+                        NS_LOG_WARN("[PhaseE] MoveUtCallback: utId=" << utId
+                                    << " not in address map — ignored");
+                        return;
+                    }
+                    NS_LOG_INFO("[PhaseE] MoveUtBetweenBeams: ut=" << it->second
+                                << " sat " << srcSatId << " beam " << srcBeamId
+                                << " -> sat " << dstSatId << " beam " << dstBeamId);
+                    ncc->MoveUtBetweenBeams(it->second,
+                                            srcSatId, srcBeamId,
+                                            dstSatId, dstBeamId);
+                });
+
+            NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseE:"
+                        " MoveUtCallback wired to SatNcc");
+        }
+        else
+        {
+            NS_LOG_WARN("SatBhHelper::ConnectTracesPhaseE:"
+                        " SatNcc not available — MoveUtCallback stays log-only");
+        }
+    }
+
+    // 4. Wire ApplyPowerCallback → SatPhy::SetTxMaxPowerDbw + Initialize
+    //    SatPhy::Initialize() recomputes m_eirpWoGainW from the new TxMaxPowerDbw.
+    //    The SatPhy::Initialize() method is NOT the ns-3 Object lifecycle
+    //    Initialize(); it is SatPhy's own setup method that is safe to call
+    //    at any simulation time to apply a new power level.
+    if (m_powerAllocator && m_orbiterDev)
+    {
+        Ptr<SatOrbiterNetDevice> dev = m_orbiterDev;
+        m_powerAllocator->SetApplyPowerCallback(
+            [dev](uint32_t beamId, double txMaxDbw) {
+                Ptr<SatPhy> phy = dev->GetUserPhy(beamId);
+                if (!phy)
+                {
+                    NS_LOG_WARN("[PhaseE] ApplyPowerCallback: no UserPhy for beamId="
+                                << beamId);
+                    return;
+                }
+                phy->SetTxMaxPowerDbw(txMaxDbw);
+                phy->Initialize(); // SatPhy::Initialize recomputes m_eirpWoGainW
+                NS_LOG_INFO("[PhaseE] ApplyPower: beam=" << beamId
+                            << " txMaxPowerDbw=" << txMaxDbw << "dBW");
+            });
+
+        NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseE:"
+                    " ApplyPowerCallback wired to SatOrbiterUserPhy");
+    }
+    else if (m_powerAllocator && !m_orbiterDev)
+    {
+        NS_LOG_WARN("SatBhHelper::ConnectTracesPhaseE:"
+                    " ApplyPowerCallback not wired (orbiter device not found);"
+                    " power allocation continues in log-only mode");
+    }
+
+    // 5. Start UT state polling loop at t=0
+    if (m_resourceManager)
+    {
+        NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseE: scheduling PollUtStates()"
+                    " every T_frame=" << m_cfg.bhtpPeriodMs << "ms");
+        Simulator::Schedule(Seconds(0.0), &SatBhHelper::PollUtStates, this);
+    }
+}
+
+// ── Phase E: UT state polling ─────────────────────────────────────────────
+//
+// Runs every T_frame.  For each UT on the configured satellite, reads the
+// current beam from SatTopology and updates ResourceManager state.
+//
+// Demand values are synthetic (1000 kbps) until Phase F wires real DAMA
+// request queue sizes from SatGwMac trace sources.
+//
+void
+SatBhHelper::PollUtStates()
+{
+    if (!m_resourceManager)
+        return;
+
+    auto* topo = Singleton<SatTopology>::Get();
+    NodeContainer utNodes = topo->GetUtNodes();
+
+    uint32_t updatedCount = 0;
+    for (uint32_t i = 0; i < utNodes.GetN(); i++)
+    {
+        Ptr<Node> utNode = utNodes.Get(i);
+
+        // Filter: only manage UTs currently on the configured satellite
+        uint32_t utSatId = topo->GetUtSatId(utNode);
+        if (utSatId != m_cfg.satId)
+            continue;
+
+        uint32_t beamId = topo->GetUtBeamId(utNode);
+
+        UtInfo info;
+        info.utId            = i;            // 0-based container index, matches m_utAddressMap
+        info.currentBeamId   = beamId;
+        // Phase F: use real RBDC demand from BacklogRequestsTrace cache.
+        // Falls back to 0.0 when no trace has arrived yet (e.g., during warm-up or
+        // when Phase F is disabled).  0.0 is intentionally conservative so the
+        // ResourceManager does not over-allocate slots to idle UTs.
+        {
+            auto dit = m_utDemandCache.find(i);
+            info.demandKbps = (dit != m_utDemandCache.end()) ? dit->second.totalRbdcKbps : 0.0;
+        }
+        info.bufferBytes     = 0.0;
+        info.cno             = 0.0;
+        info.priorityClass   = 1;
+        info.headOfLineDelayMs = 0.0;
+
+        m_resourceManager->UpdateUtState(info);
+        updatedCount++;
+    }
+
+    NS_LOG_DEBUG("SatBhHelper::PollUtStates: updated " << updatedCount
+                 << " UTs on sat " << m_cfg.satId
+                 << " t=" << Simulator::Now().GetSeconds() << "s");
+
+    // Reschedule for next frame
+    Simulator::Schedule(MilliSeconds(m_cfg.bhtpPeriodMs),
+                        &SatBhHelper::PollUtStates, this);
+}
+
+// ── Phase F: DAMA demand trace wiring ────────────────────────────────────
+//
+// ConnectTracesPhaseF() connects BacklogRequestsTrace on every SatBeamScheduler.
+// The trace fires once per UT per Return Channel (RC) each DAMA scheduling cycle,
+// with a record string: "time, beamId, satMapperUtId, typeEnum, value"
+//   typeEnum: DA_RBDC=1 (kbps), DA_VBDC=2 (bytes)
+//
+// OnBacklogRequestTrace() accumulates RBDC kbps per containerIdx into
+// m_utDemandCache.  When a new timestamp is seen for the same UT, the
+// accumulator resets (new scheduling cycle), so multi-RC totals are correct.
+//
+// PollUtStates() reads m_utDemandCache instead of the synthetic 1000 kbps stub.
+//
+void
+SatBhHelper::ConnectTracesPhaseF()
+{
+    NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseF (Phase F active)");
+
+    Ptr<SatBeamHelper> beamHelper =
+        m_simHelper->GetSatelliteHelper()->GetBeamHelper();
+    if (!beamHelper)
+    {
+        NS_LOG_WARN("SatBhHelper::ConnectTracesPhaseF: SatBeamHelper not available"
+                    " — Phase F skipped");
+        return;
+    }
+
+    Ptr<SatNcc> ncc = beamHelper->GetNcc();
+    if (!ncc)
+    {
+        NS_LOG_WARN("SatBhHelper::ConnectTracesPhaseF: SatNcc not available"
+                    " — Phase F skipped");
+        return;
+    }
+
+    std::list<std::pair<uint32_t, uint32_t>> beams = beamHelper->GetBeams();
+    uint32_t connected = 0;
+
+    // Only connect beam schedulers belonging to this helper's satellite (m_cfg.satId).
+    // GetBeams() returns all (satId, beamId) pairs across the entire constellation;
+    // without filtering, every SatBhHelper would register on all 4752 beams and
+    // OnBacklogRequestTrace would fire 66× per event, polluting each helper's cache.
+    uint32_t totalBeams = 0;
+    for (const auto& [satId, beamId] : beams)
+    {
+        if (satId != m_cfg.satId)
+            continue; // skip beams belonging to other satellites
+
+        totalBeams++;
+        Ptr<SatBeamScheduler> sched = ncc->GetBeamScheduler(satId, beamId);
+        if (!sched)
+        {
+            NS_LOG_WARN("SatBhHelper::ConnectTracesPhaseF: no scheduler for sat="
+                        << satId << " beam=" << beamId);
+            continue;
+        }
+
+        // TraceConnectWithoutContext: callback receives only the record string.
+        // MakeCallback generates a ns3::Callback<void,std::string> compatible with
+        // the BacklogRequestsTraceCallback typedef void(*)(std::string).
+        bool ok = sched->TraceConnectWithoutContext(
+            "BacklogRequestsTrace",
+            MakeCallback(&SatBhHelper::OnBacklogRequestTrace, this));
+
+        if (ok)
+        {
+            connected++;
+            NS_LOG_DEBUG("SatBhHelper::ConnectTracesPhaseF: connected sat="
+                         << satId << " beam=" << beamId);
+        }
+        else
+        {
+            NS_LOG_WARN("SatBhHelper::ConnectTracesPhaseF: TraceConnectWithoutContext"
+                        " failed for sat=" << satId << " beam=" << beamId);
+        }
+    }
+
+    NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseF: sat=" << m_cfg.satId
+                << " connected BacklogRequestsTrace on " << connected
+                << " / " << totalBeams << " own-satellite beam schedulers"
+                << " (total constellation beams=" << beams.size() << ")");
+}
+
+void
+SatBhHelper::OnBacklogRequestTrace(std::string record)
+{
+    // Record format: "time, beamId, satMapperUtId, typeEnum, value"
+    //   typeEnum: DA_RBDC=1 (kbps), DA_VBDC=2 (bytes) — only RBDC is used here.
+    double   timeS;
+    uint32_t beamId;
+    int32_t  satMapperUtId;
+    int      typeEnum;
+    double   value;
+    char     comma;
+
+    std::istringstream iss(record);
+    if (!(iss >> timeS >> comma
+              >> beamId >> comma
+              >> satMapperUtId >> comma
+              >> typeEnum >> comma
+              >> value))
+    {
+        NS_LOG_WARN("SatBhHelper::OnBacklogRequestTrace: failed to parse record: "
+                    << record);
+        return;
+    }
+
+    // Skip VBDC entries (typeEnum=2); only accumulate RBDC (typeEnum=1).
+    if (typeEnum != static_cast<int>(SatEnums::DA_RBDC))
+        return;
+
+    // Map SatIdMapper UT ID to container index (built in BuildUtAddressMap).
+    auto it = m_satMapperIdToContainerIdx.find(satMapperUtId);
+    if (it == m_satMapperIdToContainerIdx.end())
+    {
+        NS_LOG_DEBUG("SatBhHelper::OnBacklogRequestTrace: satMapperUtId=" << satMapperUtId
+                     << " not in reverse map — UT may not be on managed satellite");
+        return;
+    }
+
+    uint32_t containerIdx = it->second;
+    auto& entry = m_utDemandCache[containerIdx];
+
+    if (entry.lastTimestampS == timeS)
+    {
+        // Same scheduling cycle: sum across Return Channels.
+        entry.totalRbdcKbps += value;
+    }
+    else
+    {
+        // New scheduling cycle: reset accumulator.
+        entry.totalRbdcKbps  = value;
+        entry.lastTimestampS = timeS;
+    }
+
+    NS_LOG_DEBUG("SatBhHelper::OnBacklogRequestTrace: containerIdx=" << containerIdx
+                 << " t=" << timeS << "s beam=" << beamId
+                 << " rbdc=" << entry.totalRbdcKbps << "kbps");
 }
 
 // ── SNS3 trace connection (Phase 4 stub) ─────────────────────────────────
