@@ -1,0 +1,9 @@
+{
+  "arc_start_s": 73.000,
+  "arc_end_s": 698.000,
+  "peak_elevation_s": 385.000,
+  "peak_elevation_deg": 89.730,
+  "n_frames_logged": 626,
+  "update_ms": 1000.000,
+  "min_elevation_deg": 5.000
+}

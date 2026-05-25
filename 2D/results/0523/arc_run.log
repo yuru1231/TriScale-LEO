@@ -1,0 +1,182 @@
+-- GLOB mismatch!
+-- Using default output directory /home/wenj/workspace/ns-3.43/build
+-- [33mProceeding without cmake-format[0m
+-- find_external_library: SQLite3 was found.
+-- Could NOT find PkgConfig (missing: PKG_CONFIG_EXECUTABLE) 
+-- [33mdocs: doxygen documentation not enabled due to missing dependencies: doxygen dia[0m
+-- Failed to locate sphinx-build executable (missing: SPHINX_EXECUTABLE) 
+-- [33mdocs: sphinx documentation not enabled due to missing dependencies: Sphinx epstopdf pdflatex latexmk convert dvipng dia[0m
+-- Precompiled headers were enabled
+-- Processing contrib/magister-stats
+-- Processing contrib/satellite
+-- Processing contrib/traffic
+-- Processing src/antenna
+-- Standard library Bessel function has been found
+-- Processing src/aodv
+-- Processing src/applications
+-- Processing src/bridge
+-- Processing src/brite
+-- [33mSkipping src/brite[0m
+-- Processing src/buildings
+-- Processing src/click
+-- [33mSkipping src/click[0m
+-- Processing src/config-store
+-- Processing src/core
+-- Boost Units have been found.
+-- Processing src/csma
+-- Processing src/csma-layout
+-- Processing src/dsdv
+-- Processing src/dsr
+-- Processing src/energy
+-- Processing src/fd-net-device
+-- Could NOT find PkgConfig (missing: PKG_CONFIG_EXECUTABLE) 
+-- Processing src/flow-monitor
+-- Processing src/internet
+-- Processing src/internet-apps
+-- Processing src/lr-wpan
+-- Processing src/lte
+-- Processing src/mesh
+-- Processing src/mobility
+-- Processing src/netanim
+-- Processing src/network
+-- Processing src/nix-vector-routing
+-- Processing src/olsr
+-- Processing src/openflow
+-- [33mSkipping src/openflow[0m
+-- Processing src/point-to-point
+-- Processing src/point-to-point-layout
+-- Processing src/propagation
+-- Processing src/sixlowpan
+-- Processing src/spectrum
+-- Processing src/stats
+-- Processing src/tap-bridge
+-- Processing src/topology-read
+-- Processing src/traffic-control
+-- Processing src/uan
+-- Processing src/virtual-net-device
+-- Processing src/wifi
+-- Processing src/wimax
+-- ---- Summary of ns-3 settings:
+Build profile                 : default
+Build directory               : /home/wenj/workspace/ns-3.43/build
+Build with runtime asserts    : [32mON[0m
+Build with runtime logging    : [32mON[0m
+Build version embedding       : OFF (not requested)
+BRITE Integration             : [31mOFF (Missing headers: "Brite.h" and missing libraries: "brite")[0m
+DES Metrics event collection  : OFF (not requested)
+DPDK NetDevice                : OFF (not requested)
+Emulation FdNetDevice         : [32mON[0m
+Examples                      : OFF (not requested)
+File descriptor NetDevice     : [32mON[0m
+GNU Scientific Library (GSL)  : [31mOFF (GSL was not found)[0m
+GtkConfigStore                : [31mOFF (Harfbuzz is required by GTK3 and was not found)[0m
+LibXml2 support               : [32mON[0m
+MPI Support                   : OFF (not requested)
+ns-3 Click Integration        : [31mOFF (Missing headers: "simclick.h" and missing libraries: "nsclick click")[0m
+ns-3 OpenFlow Integration     : [31mOFF (Missing headers: "openflow.h" and missing libraries: "openflow")[0m
+Netmap emulation FdNetDevice  : [31mOFF (missing dependency)[0m
+PyViz visualizer              : [31mOFF (Python Bindings are disabled)[0m
+Python Bindings               : OFF (not requested)
+SQLite support                : [32mON[0m
+Eigen3 support                : [31mOFF (Eigen was not found)[0m
+Tap Bridge                    : [32mON[0m
+Tap FdNetDevice               : [32mON[0m
+Tests                         : OFF (not requested)
+
+
+Modules configured to be built:
+antenna                   aodv                      applications              
+bridge                    buildings                 config-store              
+core                      csma                      csma-layout               
+dsdv                      dsr                       energy                    
+fd-net-device             flow-monitor              internet                  
+internet-apps             lr-wpan                   lte                       
+magister-stats            mesh                      mobility                  
+netanim                   network                   nix-vector-routing        
+olsr                      point-to-point            point-to-point-layout     
+propagation               satellite                 sixlowpan                 
+spectrum                  stats                     tap-bridge                
+topology-read             traffic                   traffic-control           
+uan                       virtual-net-device        wifi                      
+wimax                     
+
+Modules that cannot be built:
+brite                     click                     mpi                       
+openflow                  test                      visualizer                
+
+
+
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/wenj/workspace/ns-3.43/build
+Consolidate compiler generated dependencies of target stdlib_pch-default
+Consolidate compiler generated dependencies of target core
+Consolidate compiler generated dependencies of target stats
+Consolidate compiler generated dependencies of target network
+Consolidate compiler generated dependencies of target traffic-control
+Consolidate compiler generated dependencies of target antenna
+Consolidate compiler generated dependencies of target bridge
+Consolidate compiler generated dependencies of target internet
+Consolidate compiler generated dependencies of target mobility
+Consolidate compiler generated dependencies of target propagation
+Consolidate compiler generated dependencies of target wimax
+Consolidate compiler generated dependencies of target stdlib_pch_exec
+Consolidate compiler generated dependencies of target applications
+Consolidate compiler generated dependencies of target magister-stats
+Consolidate compiler generated dependencies of target flow-monitor
+Consolidate compiler generated dependencies of target point-to-point
+Consolidate compiler generated dependencies of target traffic
+Consolidate compiler generated dependencies of target config-store
+Consolidate compiler generated dependencies of target csma
+Consolidate compiler generated dependencies of target satellite
+Consolidate compiler generated dependencies of target energy
+Consolidate compiler generated dependencies of target spectrum
+Consolidate compiler generated dependencies of target wifi
+Consolidate compiler generated dependencies of target internet-apps
+Consolidate compiler generated dependencies of target aodv
+Consolidate compiler generated dependencies of target buildings
+Consolidate compiler generated dependencies of target csma-layout
+Consolidate compiler generated dependencies of target mesh
+Consolidate compiler generated dependencies of target dsdv
+Consolidate compiler generated dependencies of target dsr
+Consolidate compiler generated dependencies of target raw-sock-creator
+Consolidate compiler generated dependencies of target tap-device-creator
+Consolidate compiler generated dependencies of target fd-net-device
+Consolidate compiler generated dependencies of target lr-wpan
+Consolidate compiler generated dependencies of target virtual-net-device
+Consolidate compiler generated dependencies of target lte
+Consolidate compiler generated dependencies of target uan
+Consolidate compiler generated dependencies of target netanim
+Consolidate compiler generated dependencies of target nix-vector-routing
+Consolidate compiler generated dependencies of target olsr
+Consolidate compiler generated dependencies of target point-to-point-layout
+Consolidate compiler generated dependencies of target sixlowpan
+Consolidate compiler generated dependencies of target tap-bridge
+Consolidate compiler generated dependencies of target topology-read
+Consolidate compiler generated dependencies of target scratch_projection_sat-multi-beam-simulation
+
+=================================================================
+Multi-Beam LEO Simulation — SNS3 C++ reproduction
+=================================================================
+  mode        = arc
+  h           = 600.0 km
+  r_footprint = 100.0 km
+  n_user      = 37
+  n_beams     = 19
+  f_c         = 30.0 GHz
+  HPBW        = 3.2 deg
+  noise power = -92.8 dBm
+  pass duration (s)  = 770.8
+  nadir design       = satellite shadow centred
+=================================================================
+
+Generating user positions (arc mode)... 37 users
+Hex beam centres built (19 beams, 2-ring layout)
+  wrote scratch/arc_test/user_positions.csv
+
+[arc mode] pass_duration=770.8s  step=100.0ms  min_elev=5.0°  users=37
+  wrote scratch/arc_test/arc_satellite_positions.csv
+  wrote scratch/arc_test/arc_channel_results.csv
+  wrote scratch/arc_test/arc_summary.json
+
+Done.  Output in: scratch/arc_test

@@ -1,0 +1,12 @@
+{
+  "n_in_footprint": 25,
+  "snr_threshold_dB": 0.000,
+  "thresholds_pct": [10, 25, 50, 75, 90],
+  "sat_i1_coverage_times_s": {
+    "10pct": 318.700,
+    "25pct": 322.300,
+    "50pct": 327.700,
+    "75pct": 334.500,
+    "90pct": 336.400
+  }
+}
