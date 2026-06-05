@@ -1,0 +1,3 @@
+#!/bin/bash
+
+exec make -C documentation clean html push

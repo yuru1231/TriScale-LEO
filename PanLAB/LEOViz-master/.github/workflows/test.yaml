@@ -1,0 +1,52 @@
+name: test
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    paths:
+      - '**.py'
+    tags:
+      - v*
+    branches:
+      - master
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
+        with:
+          daemon-config: |
+            {
+              "debug": true,
+              "features": {
+                "containerd-snapshotter": true
+              }
+            }
+
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: .
+          file: Dockerfile-starlink
+          load: true
+          tags: leoviz:starlink
+
+      - name: Test
+        working-directory: ./tests
+        run: bash run-tests.sh

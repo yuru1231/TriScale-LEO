@@ -79,7 +79,7 @@ ParseConfig(int argc, char* argv[], std::string& scenario, uint32_t& numSats)
     CommandLine cmd;
 
     // ── Scenario selector (example-level, not stored in BhExperimentConfig) ──
-    cmd.AddValue("scenario", "leo2sat: scheduling verify | iridium66: full 66-sat system",
+    cmd.AddValue("scenario", "leo2sat: scheduling verify | iridium-next: Iridium NEXT 66-sat 72-beam system",
                  scenario);
     cmd.AddValue("numSats",  "satellites to install BH on (overridden by scenario)", numSats);
 
@@ -158,7 +158,7 @@ int
 main(int argc, char* argv[])
 {
     // ── Step 0: parse experiment configuration ────────────────────────────
-    std::string scenario{"leo2sat"};  // "leo2sat" | "iridium66"
+    std::string scenario{"leo2sat"};  // "leo2sat" | "iridium-next"
     uint32_t    numSats{1};
 
     BhExperimentConfig cfg = ParseConfig(argc, argv, scenario, numSats);
@@ -169,6 +169,11 @@ main(int argc, char* argv[])
                        EnumValue(SatEnums::REGENERATION_NETWORK));
     Config::SetDefault("ns3::SatConf::ReturnLinkRegenerationMode",
                        EnumValue(SatEnums::REGENERATION_NETWORK));
+
+    // Iridium NEXT constellation waveform:
+    //   constellation-iridium-next-66-sats/waveforms/default_waveform.txt = 3
+    //   waveforms.txt index 3 → QPSK 1/3, DVB standard
+    Config::SetDefault("ns3::SatWaveformConf::DefaultWfId", UintegerValue(3));
 
     // Enable handover so topology evolves as LEO satellites pass overhead
     Config::SetDefault("ns3::SatHelper::HandoversEnabled",          BooleanValue(true));
@@ -193,25 +198,32 @@ main(int argc, char* argv[])
 
     // Scenario-dependent: beam set and constellation
     std::set<uint32_t> beamSet;
-    if (scenario == "iridium66")
+    if (scenario == "iridium-next" || scenario == "iridium66")
     {
-        // Iridium-like 66-sat constellation (6 orbital planes × 11 sats/plane).
+        // Iridium NEXT constellation (constellation-iridium-next-66-sats):
+        //   - 66 satellites: 6 orbital planes × 11 sats/plane
+        //   - Inclination: 86.4°, Mean motion: 14.80 rev/day → altitude ~636.5 km
+        //   - 72 spot beams total (fwdConf.txt: 72 entries)
+        //   - 5 GW positions (gw_positions.txt), 4 active GWs (fwdConf column 2: IDs 1–4)
+        //   - 5 frequency reuse colours (fwdConf column 3: colours 1–5)
+        //   - Antenna pattern: SatAntennaGain72BeamsShifted (peak ~51 dBi)
+        //   - Default MODCOD: 3 (QPSK 1/3, DVB; waveforms/default_waveform.txt)
         //
-        // cfg.numBeams = total beams to activate (command-line: --numBeams, default 7).
-        //   Quick test  : --numBeams=7  --maxActiveBeams=3  (7 beams, K=3)
-        //   Full system : --numBeams=72 --maxActiveBeams=3  (72 beams, K=3)
+        // cfg.numBeams = total beams to activate (command-line: --numBeams, default 72).
+        //   Quick test  : --numBeams=7  --maxActiveBeams=3
+        //   Full system : --numBeams=72 --maxActiveBeams=3  (full Iridium NEXT)
         //
         // Beam-to-satellite assignment: round-robin across satellites.
         //   beam b (1-indexed) → satId = (b-1) % numSats
-        //   e.g. numBeams=7  → sats 0–6 each carry 1 beam
-        //        numBeams=72 → sats 0–5 each carry 2 beams, sats 6–65 carry 1 beam
+        //   e.g. numBeams=72, numSats=66 → sats 0–5 each carry 2 beams, sats 6–65 carry 1 beam
+        //        → maxBeamsPerSat = ceil(72/66) = 2
         //
         // maxBeamsPerSat = ceil(numBeams / numSats), passed to SatBhHelper::SetNumBeams()
         // so the BHTP builder allocates the right number of BHTP slots per satellite.
         numSats = 66;
 
-        // Clamp numBeams to valid range [1, 72] for iridium66
-        if (cfg.numBeams < 1)  cfg.numBeams = 7;
+        // Clamp numBeams to valid range [1, 72] for Iridium NEXT
+        if (cfg.numBeams < 1)  cfg.numBeams = 72;  // full constellation default
         if (cfg.numBeams > 72) cfg.numBeams = 72;
 
         // maxBeamsPerSat: how many beams the busiest satellite carries.
@@ -226,23 +238,21 @@ main(int argc, char* argv[])
         if (cfg.maxActiveBeams > cfg.numBeams)
             cfg.maxActiveBeams = cfg.numBeams;
 
-        // Build per-beam user info: SatHelper::BeamUserInfoMap_t maps
-        //   {satId, beamId} → SatBeamUserInfo(utCount, userPerUt)
-        // One UT with one user per beam (lightweight; extend for hotspot differentiation).
-        SatHelper::BeamUserInfoMap_t beamInfos;
+        // Populate beamSet with all beam IDs for the iridium-next scenario.
+        // BeamUserInfoMap_t / SetBeamUserInfo is not available in this SNS3 build;
+        // UT placement is handled by the loaded scenario's default configuration.
         for (uint32_t b = 1; b <= cfg.numBeams; ++b)
-        {
-            uint32_t satId = (b - 1) % numSats;   // round-robin satellite assignment
             beamSet.insert(b);
-            beamInfos[{satId, b}] = SatBeamUserInfo(1, 1);
-        }
-        NS_LOG_INFO("[iridium66] numBeams=" << cfg.numBeams
+
+        NS_LOG_INFO("[iridium-next] numBeams=" << cfg.numBeams
                     << " K=" << cfg.maxActiveBeams
                     << " maxBeamsPerSat=" << maxBeamsPerSat
                     << " hotspot=" << cfg.numHotspotBeams);
 
-        simHelper->LoadScenario("constellation-iridium-66-sats");
-        simHelper->SetBeamUserInfo(beamInfos);  // per-satellite, per-beam UT assignment
+        // constellation-iridium-next-66-sats:
+        //   altitude ~636.5 km, inclination 86.4°, 72 beams, DVB standard
+        //   antenna: SatAntennaGain72BeamsShifted (peak avg 51.4 dBi)
+        simHelper->LoadScenario("constellation-iridium-next-66-sats");
 
         // Override numBeams in cfg to reflect maxBeamsPerSat so SatBhHelper
         // BHTP builder sees the correct per-satellite beam count.

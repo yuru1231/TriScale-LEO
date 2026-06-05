@@ -1,0 +1,1 @@
+﻿python 2D/code/scripts/run_sgp4.py --mode sequence --tle-file 2D/data/tle/iridium.txt --observer-lat 35.676 --observer-lon 139.650 --start-utc "2000/01/01 00:00:00" --search-window-s 7200 --scan-step-s 10 --min-peak-elev-deg 50 --pair-index 1 --pair-i1-index 3 --margin-s 60 --step-ms 100 --output-sat-i orbit_sat_i.csv --output-sat-i1 orbit_sat_i1.csv

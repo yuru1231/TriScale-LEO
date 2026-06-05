@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -e
+
+cd "$(readlink -f $(dirname "${BASH_SOURCE[0]}"))"
+cd ..
+
+echo
+echo 'Have you remembered to rebuild the delta-T tables?'
+echo
+
+echo 'Looking for bad file permissions...'
+bad=$(
+    find skyfield -type f ! -perm -644
+    find skyfield -type d ! -perm -755
+)
+if [ -n "$bad" ]
+then
+    ls -ld $bad
+    exit 1
+fi
+echo 'Everything looks good!'
+echo
+
+PYTHONDONTWRITEBYTECODE= uv build
+
+echo
+echo 'See `cheat-sheet` to remind yourself how to publish to PyPI.'
+echo 'Then run `bin/publish-docs` to update the website.'
+echo

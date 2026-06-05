@@ -1,0 +1,31 @@
+{
+  "mode": "sequence",
+  "observer_lat_deg": 35.676,
+  "observer_lon_deg": 139.65,
+  "start_utc": "2000/01/01 00:00:00",
+  "window_start_s": 0.0,
+  "window_end_s": 1030.0,
+  "step_ms": 100.0,
+  "sat_i": {
+    "name": "iridium-75 45",
+    "t_enter_s": 0.0,
+    "t_peak_s": 50.0,
+    "t_exit_s": 440.0,
+    "peak_elev_deg": 66.39692461985427,
+    "local_enter_s": 0.0,
+    "local_peak_s": 50.0,
+    "local_exit_s": 440.0,
+    "csv": "C:\\Users\\wenj\\Desktop\\TriScale-LEO\\results\\sgp4_sequence_20260523_150004\\orbit_sat_i.csv"
+  },
+  "sat_i1": {
+    "name": "iridium-75 44",
+    "t_enter_s": 190.0,
+    "t_peak_s": 580.0,
+    "t_exit_s": 970.0,
+    "peak_elev_deg": 85.14509038205476,
+    "local_enter_s": 190.0,
+    "local_peak_s": 580.0,
+    "local_exit_s": 970.0,
+    "csv": "C:\\Users\\wenj\\Desktop\\TriScale-LEO\\results\\sgp4_sequence_20260523_150004\\orbit_sat_i1.csv"
+  }
+}

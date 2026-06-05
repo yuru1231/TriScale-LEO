@@ -1,0 +1,188 @@
+{
+  "roi_lat_deg": 35.676190,
+  "roi_lon_deg": 139.650310,
+  "grid_d": 5,
+  "window_s": 3600.000000,
+  "dt_screen_s": 10.000000,
+  "dt_snr_s": 1.000000,
+  "min_elev_deg": 5.000000,
+  "n_qualifying": 16,
+  "passes": [
+    {
+      "sat_index": 11,
+      "sat_name": "iridium-75 11",
+      "csv_file": "sat_00011_cells.csv",
+      "window_start_s": 1780.000000,
+      "window_end_s": 2360.000000,
+      "peak_elev_deg": 27.129974,
+      "peak_elev_time_s": 2070.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 581
+    },
+    {
+      "sat_index": 12,
+      "sat_name": "iridium-75 12",
+      "csv_file": "sat_00012_cells.csv",
+      "window_start_s": 1240.000000,
+      "window_end_s": 1840.000000,
+      "peak_elev_deg": 34.136768,
+      "peak_elev_time_s": 1540.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 601
+    },
+    {
+      "sat_index": 13,
+      "sat_name": "iridium-75 13",
+      "csv_file": "sat_00013_cells.csv",
+      "window_start_s": 700.000000,
+      "window_end_s": 1320.000000,
+      "peak_elev_deg": 43.452576,
+      "peak_elev_time_s": 1010.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 621
+    },
+    {
+      "sat_index": 14,
+      "sat_name": "iridium-75 14",
+      "csv_file": "sat_00014_cells.csv",
+      "window_start_s": 170.000000,
+      "window_end_s": 800.000000,
+      "peak_elev_deg": 56.038848,
+      "peak_elev_time_s": 480.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 631
+    },
+    {
+      "sat_index": 15,
+      "sat_name": "iridium-75 15",
+      "csv_file": "sat_00015_cells.csv",
+      "window_start_s": 0.000000,
+      "window_end_s": 270.000000,
+      "peak_elev_deg": 55.464720,
+      "peak_elev_time_s": 0.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 271
+    },
+    {
+      "sat_index": 19,
+      "sat_name": "iridium-75 19",
+      "csv_file": "sat_00019_cells.csv",
+      "window_start_s": 3430.000000,
+      "window_end_s": 3600.000000,
+      "peak_elev_deg": 13.084554,
+      "peak_elev_time_s": 3600.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 171
+    },
+    {
+      "sat_index": 20,
+      "sat_name": "iridium-75 20",
+      "csv_file": "sat_00020_cells.csv",
+      "window_start_s": 2880.000000,
+      "window_end_s": 3380.000000,
+      "peak_elev_deg": 17.326444,
+      "peak_elev_time_s": 3120.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 501
+    },
+    {
+      "sat_index": 21,
+      "sat_name": "iridium-75 21",
+      "csv_file": "sat_00021_cells.csv",
+      "window_start_s": 2330.000000,
+      "window_end_s": 2870.000000,
+      "peak_elev_deg": 21.691263,
+      "peak_elev_time_s": 2600.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 541
+    },
+    {
+      "sat_index": 44,
+      "sat_name": "iridium-75 44",
+      "csv_file": "sat_00044_cells.csv",
+      "window_start_s": 260.000000,
+      "window_end_s": 900.000000,
+      "peak_elev_deg": 85.054085,
+      "peak_elev_time_s": 580.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 641
+    },
+    {
+      "sat_index": 45,
+      "sat_name": "iridium-75 45",
+      "csv_file": "sat_00045_cells.csv",
+      "window_start_s": 0.000000,
+      "window_end_s": 370.000000,
+      "peak_elev_deg": 66.447147,
+      "peak_elev_time_s": 50.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 371
+    },
+    {
+      "sat_index": 49,
+      "sat_name": "iridium-75 49",
+      "csv_file": "sat_00049_cells.csv",
+      "window_start_s": 3510.000000,
+      "window_end_s": 3600.000000,
+      "peak_elev_deg": 12.003806,
+      "peak_elev_time_s": 3600.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 91
+    },
+    {
+      "sat_index": 50,
+      "sat_name": "iridium-75 50",
+      "csv_file": "sat_00050_cells.csv",
+      "window_start_s": 2950.000000,
+      "window_end_s": 3540.000000,
+      "peak_elev_deg": 28.079195,
+      "peak_elev_time_s": 3250.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 591
+    },
+    {
+      "sat_index": 51,
+      "sat_name": "iridium-75 51",
+      "csv_file": "sat_00051_cells.csv",
+      "window_start_s": 2410.000000,
+      "window_end_s": 3020.000000,
+      "peak_elev_deg": 35.339187,
+      "peak_elev_time_s": 2710.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 611
+    },
+    {
+      "sat_index": 52,
+      "sat_name": "iridium-75 52",
+      "csv_file": "sat_00052_cells.csv",
+      "window_start_s": 1870.000000,
+      "window_end_s": 2490.000000,
+      "peak_elev_deg": 45.051598,
+      "peak_elev_time_s": 2180.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 621
+    },
+    {
+      "sat_index": 53,
+      "sat_name": "iridium-75 53",
+      "csv_file": "sat_00053_cells.csv",
+      "window_start_s": 1330.000000,
+      "window_end_s": 1960.000000,
+      "peak_elev_deg": 58.077838,
+      "peak_elev_time_s": 1650.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 631
+    },
+    {
+      "sat_index": 54,
+      "sat_name": "iridium-75 54",
+      "csv_file": "sat_00054_cells.csv",
+      "window_start_s": 790.000000,
+      "window_end_s": 1430.000000,
+      "peak_elev_deg": 75.025887,
+      "peak_elev_time_s": 1110.000000,
+      "n_cells_covered": 25,
+      "n_snr_samples": 641
+    }
+  ]
+}

@@ -441,6 +441,11 @@ SatBhHelper::ApplySyntheticSlot()
         // Notify Metrics: slot started for this beam
         m_metrics->OnSlotActivated(m_cfg.satId, beamId, usable);
 
+        // Phase 3: release any buffered packets now that beam is active.
+        // Mirrors what SetupCacheQueue() wires via OBC BeamActivateCallback.
+        if (m_cacheQueue)
+            m_cacheQueue->DequeueAll(beamId);
+
         // Simulate packet receptions
         bool     isHotspot = (beamId <= m_cfg.numHotspotBeams);
         uint32_t numPkts   = isHotspot ? 5 : 2;

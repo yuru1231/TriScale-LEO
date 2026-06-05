@@ -1,0 +1,15 @@
+[Unit]
+Description=Starlink LENS dataset collection, clarkzjw at uvic.ca
+
+[Service]
+Type=simple
+User=root
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+WorkingDirectory=/opt/lens/
+ExecStart=/usr/bin/lens
+
+[Install]
+WantedBy=default.target

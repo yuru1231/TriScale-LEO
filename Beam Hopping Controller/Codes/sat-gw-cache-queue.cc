@@ -73,27 +73,57 @@ SatGwCacheQueue::SetSatId(uint32_t satId)
 void
 SatGwCacheQueue::Enqueue(uint32_t beamId, Ptr<Packet> pkt)
 {
-    // TODO Phase 3:
-    //   1. Check m_queueBytes[beamId] + pkt->GetSize() ≤ m_maxQueueBytesPerBeam
-    //   2. If overflow: m_dropCb(m_i, beamId, pkt); return
-    //   3. Else: m_queues[beamId].push_back({pkt, Simulator::Now()})
-    //            m_queueBytes[beamId] += pkt->GetSize()
+    NS_ASSERT_MSG(pkt, "SatGwCacheQueue::Enqueue: null packet");
+
+    const uint64_t pktSize = static_cast<uint64_t>(pkt->GetSize());
+
+    // Tail-drop when per-beam queue is full
+    if (m_queueBytes[beamId] + pktSize > m_maxQueueBytesPerBeam)
+    {
+        NS_LOG_WARN("SatGwCacheQueue::Enqueue beam=" << beamId
+                    << " TAIL_DROP size=" << pktSize
+                    << " queueBytes=" << m_queueBytes[beamId]
+                    << " limit=" << m_maxQueueBytesPerBeam);
+        if (m_dropCb)
+            m_dropCb(m_i, beamId, pkt);
+        return;
+    }
+
+    m_queues[beamId].push_back(CacheEntry{pkt, Simulator::Now()});
+    m_queueBytes[beamId] += pktSize;
+
     NS_LOG_DEBUG("SatGwCacheQueue::Enqueue beam=" << beamId
-                 << " size=" << (pkt ? pkt->GetSize() : 0)
-                 << " [STUB — packet not buffered]");
+                 << " size=" << pktSize
+                 << " depth=" << m_queues[beamId].size()
+                 << " queueBytes=" << m_queueBytes[beamId]);
 }
 
 void
 SatGwCacheQueue::DequeueAll(uint32_t beamId)
 {
-    // TODO Phase 3:
-    //   for each CacheEntry in m_queues[beamId]:
-    //     double delayMs = (Now() - entry.enqueueTime).GetMilliSeconds()
-    //     m_dequeueCb(m_i, beamId, entry.pkt, delayMs)
-    //   m_queues[beamId].clear()
-    //   m_queueBytes[beamId] = 0
-    NS_LOG_DEBUG("SatGwCacheQueue::DequeueAll beam=" << beamId
-                 << " [STUB — no packets to release]");
+    auto it = m_queues.find(beamId);
+    if (it == m_queues.end() || it->second.empty())
+    {
+        NS_LOG_DEBUG("SatGwCacheQueue::DequeueAll beam=" << beamId << " — queue empty, nothing to release");
+        return;
+    }
+
+    auto& queue = it->second;
+    NS_LOG_INFO("SatGwCacheQueue::DequeueAll beam=" << beamId
+                << " releasing " << queue.size() << " packets");
+
+    for (auto& entry : queue)
+    {
+        const double delayMs = (Simulator::Now() - entry.enqueueTime).GetMilliSeconds();
+        NS_LOG_DEBUG("  pkt size=" << entry.pkt->GetSize()
+                     << " delayMs=" << delayMs);
+        if (m_dequeueCb)
+            m_dequeueCb(m_i, beamId, entry.pkt, delayMs);
+    }
+
+    // Clear queue and reset byte counter
+    queue.clear();
+    m_queueBytes[beamId] = 0;
 }
 
 // ── Callback registration ─────────────────────────────────────────────────

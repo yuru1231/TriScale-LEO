@@ -77,6 +77,7 @@
 | Phase 2.3 | 5 個重疊階段偵測：找出 sat[i+1] 覆蓋 10/25/50/75/90% ROI 格點的時間點 | ✅ | 2026-05-23 | 內嵌於 Phase 2.2；**v2（Phase 2.5 修正後）**：10pct=318.7s, 25pct=322.3s, 50pct=327.7s, 75pct=334.5s, 90pct=336.4s（均在重疊窗口 190–440s 內）；v1 原始值見 `0523_phase2.5-low-elevation-beam-correction.md` |
 | Phase 2.4 | Greedy 分配 + 輸出：每格取 SNR 較高的衛星，輸出 per-cell SNR → Figure A（熱圖）+ Figure B（CDF） | ✅ | 2026-05-23 | sat[i]=2.61 dB, sat[i+1]=2.49 dB, Greedy=3.19 dB（全格均值）；Figure A 三張熱圖 + Figure B CDF 生成 |
 | Phase 2.5 | 低仰角 UPA beam 方位角修正：`BuildArrayTransform` 新增 z 軸預旋轉，修正 satPos.y ≠ 0 的 beam gain 誤差 | ✅ | 2026-05-23 | v2 vs v1 Δ: sat[i]=−0.033 dB, sat[i+1]=−0.075 dB, Greedy=−0.061 dB（最大 ~0.20 dB 角落格點）；中心格點 Δ=0（對稱驗證通過）；Figure A/B 已更新至 dual_d5_v2/figures/ |
+| Phase 2.6 | 程式碼模組化：Phase 1/2 混雜程式碼拆分為獨立模組；統一繪圖腳本合併三支繪圖工具為一支 | ✅ | 2026-05-28 | `sat-phase2-grid.h/.cc`（GridMode）、`sat-phase2-dual.h/.cc`（DualMode）；`exp_phase2_plots.py` 一鍵產生 Figure A–D；Phase 2 SOP 七步驟完成 |
 
 ---
 
@@ -453,8 +454,10 @@ build_exec(
         sat-multi-beam-simulation.cc
         sat-multi-beam-geometry.cc
         sat-multi-beam-channel.cc
-        sat-orbit-reader.cc   # Phase 2.0 新增
-        sat-roi-grid.cc       # Phase 2.0 新增
+        sat-orbit-reader.cc      # Phase 2.0 新增
+        sat-roi-grid.cc          # Phase 2.0 新增
+        sat-phase2-grid.cc       # Phase 2.6 新增
+        sat-phase2-dual.cc       # Phase 2.6 新增
     LIBRARIES_TO_LINK
         ${libcore}
         ${libsatellite}
@@ -907,7 +910,7 @@ classDiagram
   "arc_start_s": 0.0,
   "arc_end_s": 770.0,
   "peak_elevation_s": 385.37,
-  "peak_elevation_deg": 89.997,give me the cmd that i will run it again then fill the gap
+  "peak_elevation_deg": 89.981,
   "n_frames_logged": 7700,
   "update_ms": 100.0,
   "min_elevation_deg": 5.0
@@ -1151,14 +1154,24 @@ python 2D/projection/code/scripts/run_sgp4.py \
 - `scratch/dual_d5/dual_cell_summary.csv` — 每格統計：coverage、mean SNR、greedy SNR
 - `scratch/dual_d5/dual_overlap.json` — Phase 2.3：sat[i+1] 覆蓋 10/25/50/75/90% ROI 的首次時間
 
-**Step 3：繪圖（Phase 2.4 Figure A/B）**
+**Step 3：繪圖（Phase 2.6 Unified — Figure A–D）**
 
 ```bash
-python 2D/projection/code/scripts/plot_dual_results.py \
-    --summary scratch/dual_d5/dual_cell_summary.csv \
-    --d 5 \
-    --out-dir scratch/dual_d5/figures
+# Phase 2.6 統一繪圖腳本（一鍵產生四張圖）
+python 2D/projection/code/scripts/exp_phase2_plots.py \
+    --grid-summary result/grid/cell_summary.csv \
+    --dual-summary result/dual/cell_summary.csv \
+    --dual-result  result/dual/cell_result.csv \
+    --overlap      result/dual/overlap.json \
+    --out-dir      figures
 ```
+
+| Figure | 輸入 | 說明 |
+|--------|------|------|
+| A | `dual/cell_summary.csv` | sat[i] / sat[i+1] / Greedy 三欄 SNR 熱圖 |
+| B | `dual/cell_summary.csv` | 三種策略 per-cell SNR CDF |
+| C | `dual/cell_result.csv` + `overlap.json` | sat[i+1] ROI coverage buildup 曲線 |
+| D | `grid/cell_summary.csv` | 單星 SNR 熱圖 + min/max range bar |
 
 **Phase 2.2–2.4 驗證條件：**
 

@@ -10,11 +10,46 @@
 
 ---
 
+## 執行狀態
+
+> [!NOTE]
+> **狀態圖示：**
+> - ✅ 已成功完成
+> - ⏳ 進行中 / 待處理
+> - ❌ 錯誤 / 失敗（附說明）
+
+> **Layer 2 前置驗證已完成；ns-3 模組 Phase A–E ✅；Phase F ⏳。**
+
+| 步驟 | 狀態 | 時間 | 備註 |
+|------|------|------|------|
+| **前置：2D 通道模型驗證（Greedy 基準）** | ✅ | 2026-05 | C++ UPA 與 Python 等價（p95 Δ < 0.02 dB）；Greedy SNR = 3.13 dB；Phase 2.6 模組化完成，`exp_phase2_plots.py` 產生 Figure A–D |
+| **前置：MDP 設計（狀態 / 動作 / 獎勵）** | ✅ | 2026-06 | 狀態 194 維；連續動作空間；4 項獎勵係數（詳見 §MDP 設計） |
+| **前置：Layer 1 介面確認** | ✅ | 2026-04 | `routing_plan.csv` 含 `bandwidth_budget_Mbps` 欄位 |
+| Phase A：文件重寫 | ✅ | — | Layer2.md 架構完整 |
+| Phase B：資料模型擴充 | ✅ | — | `SatBhTimePlan` / `BhSlotEntry` per-beam 擴充 |
+| Phase C：Frame-scale 模組 | ✅ | — | `SatUserAssociator`、`SatResourceManager` |
+| Phase D：Slot-scale 模組 | ✅ | — | `SatPowerAllocator` IWFA water-filling |
+| Phase E：真實 SNS3 API 接線 | ✅ | 2026-05 | `ConnectTracesPhaseE()`、UT 重分配、功率寫回 |
+| Phase F：真實需求輸入 | ⏳ | — | DAMA 佇列 trace + `CnoInfo` 接線待實作 |
+| Layer 2 + Layer 1 端對端整合測試 | ⏳ | — | gw2ut 場景，DRL vs Greedy 效能比較 |
+
+---
+
 ## 2. 系統圖
 
 ### 2.1 Time Axis（時間結構）
 
 
+![Time Axis](./././time-axis.png)
+
+-  Frame 持續 T_frame = 503 ms，內部切成 19 個 Slot，每個 Slot 為 26.5 ms。
+-  Frame Boundary Events
+   - PollUtStates — 查詢 SatTopology，收集目前 UT 狀態
+   - RunFrameOptimization — 呼叫 UserAssociator + PowerAllocator，決定下一幀各 Slot 要開哪些 Beam
+   - MoveUtsBetweenBeams — 通知 SatNcc 和 TIM-U，把 UT 移到新的 Beam assignment
+- Slot Boundary Events
+   - SatBhObc — 根據排程結果，執行 Beam activate / deactivate
+   - SatGwCacheQueue — 從 Cache 中取出封包，傳送到 RF 端（實際傳輸）
 
 **關鍵時間參數：**
 
@@ -25,7 +60,7 @@
 | T_sw | Beam switching time | 2 ms |
 | T_prop | GW → SAT 指令傳播延遲 | 10 ms |
 | M | 每幀時隙總數 | 19 |
-| K | 同一時隙最多同時活躍 beam 數 | 3 |
+| K | 同一時隙最多同時活躍 beam 數 | 2 ~ 4（basic=2，full=3，上限 4） |
 
 ---
 
@@ -59,7 +94,128 @@ SatAntennaGainPattern::GetAntennaGain_lin(lat, lon)
 
 ### 2.3 System Architecture（系統架構）
 
-![structure](./Beam%20Hopping%20Controller/sat-bh-example-strc.png)
+```mermaid
+flowchart TB
+
+%% ── INPUT ──────────────────────────────────────────────
+subgraph INPUT [Input Layer]
+    direction LR
+    I1["SatTopology<br/>GetUtBeamId / GetUtNodes<br/>Phase E"]
+    I2["SatBeamScheduler<br/>UsableCapacity / UnmetCapacity<br/>Phase E"]
+    I3["SatNetDevice<br/>RxDelay / Tx / Rx<br/>Phase E"]
+    I4["SatGwMac<br/>DAMA Queue<br/>Phase F"]
+    I5["SatPhy<br/>CnoInfo<br/>Phase F"]
+end
+
+%% ── DECISION  (Frame Scale 503 ms) ─────────────────────
+subgraph DECISION [Decision Layer - Frame Scale 503 ms]
+    direction LR
+    D1["SatResourceManager<br/>RunFrameOptimization @ 503 ms"]
+    D2["SatUserAssociator<br/>WFQ / Priority / RR"]
+    D3["SatBeamPatternSelector<br/>Nu ratio and setup-time<br/>Optional"]
+end
+
+%% ── RESOURCE  (Data Model + Slot Scale 26.5 ms) ────────
+subgraph RESOURCE [Resource Layer - Slot Scale 26.5 ms]
+    direction LR
+    R1["SatPowerAllocator<br/>IWFA water-filling<br/>sum p_k <= 43 dBm"]
+    R2["SatBhTimePlan / BhSlotEntry<br/>beamPatterns and scheduledUtIds<br/>allocatedPowerDbw and frameId"]
+end
+
+%% ── EXECUTION  (existing SNS3 modules) ─────────────────
+subgraph EXEC [Execution Layer - Existing SNS3]
+    direction LR
+    E1["SatBhObc<br/>beam switching<br/>IDLE / ACTIVE / SWITCHING"]
+    E2["SatGwCacheQueue<br/>per-beam packet buffer"]
+    E3["SatBhPrecoder<br/>MMSE (cluster >= 2)"]
+    E4["SatBhMetrics<br/>packet-level KPI"]
+end
+
+%% ── OUTPUT ──────────────────────────────────────────────
+subgraph KPI [Output / KPI]
+    direction LR
+    K1["SatBhKpiLogger<br/>bh-kpi.csv<br/>frame-level 5 KPI"]
+    K2["bh-metrics.csv<br/>packet KPI"]
+    K3["bh-timeplan.csv<br/>BHTP slot table"]
+end
+
+%% ── CROSS-LAYER ─────────────────────────────────────────
+X1["SatL1RoutingInterface<br/>stub and Enabled=false"]
+
+%% ── MAIN FLOW ───────────────────────────────────────────
+I1 -->|PollUtStates| D1
+I2 --> K1
+I3 --> K1
+I4 -.->|Phase F demand_kbps| D1
+I5 -.->|Phase F CnoInfo| R1
+
+D1 --> D2
+D1 --> D3
+D1 --> R1
+D1 -->|OnFrameOptimized| K1
+
+D2 -->|AssignmentMap| R2
+D2 -->|MoveUtCallback to SatNcc| E1
+D3 -->|patternId| R2
+R1 -->|PowerMap| R2
+R1 -->|ApplyPowerCallback to SatOrbiterUserPhy| E1
+
+R2 --> E1
+E1 --> E2
+E2 --> E3
+E3 --> E4
+
+E4 --> K2
+R2 --> K3
+
+%% ── FEEDBACK / CROSS-LAYER ──────────────────────────────
+K1 -.->|capacity feedback| D1
+K2 -.->|delay feedback| D1
+X1 -.->|beam protection| D1
+D1 -.->|beam state| X1
+```
+
+**Legend：**
+- `✅ Phase E` — 已接線的 SNS3 trace
+- `⚠ Phase F` — 待實作的真實輸入
+- `⚙ optional` — 選配，setup-time 靜態分配
+- `stub` — 預留介面，Enabled=false
+
+---
+
+## 2D Greedy 基準結果（前置，已完成）
+
+> 結果來自 2026-05 完成的 2D 通道模型驗證（`2D/results/dual_d5_v2/`），作為 ns-3 Layer 2 DRL 實作的效能比較基準。詳細步驟見 [03_beam_hopping.md](../Thesis/docs/installation/03_beam_hopping.md)。
+
+**場景：** Tokyo ROI（35.676°N，139.650°E），d=5（5×5=25 格點），衛星對 iridium-75 45/44
+
+| 策略 | 全格平均 SNR | 說明 |
+|------|-------------|------|
+| sat[i] only | 2.58 dB | 單顆衛星服務 |
+| sat[i+1] only | 2.42 dB | 下一顆衛星服務 |
+| **Greedy（基準 B2）** | **3.13 dB** | 每格取較高 SNR（+0.55 dB vs sat[i]） |
+
+**換手觸發時間點（Phase 2.3 Overlap 偵測）：**
+
+| 閾值 | ROI 覆蓋 | 首次發生時間 |
+|------|---------|------------|
+| P10 | 10%（3 格） | t = 318.7 s |
+| P25 | 25%（7 格） | t = 322.3 s |
+| P50 | 50%（13 格） | t = 327.7 s |
+| P75 | 75%（19 格） | t = 334.5 s |
+| P90 | 90%（23 格） | t = 336.4 s |
+
+**輸出圖形（Phase 2.6 統一繪圖腳本 `exp_phase2_plots.py`）：**
+
+| Figure | 說明 | 來源 |
+|--------|------|------|
+| A | sat[i] / sat[i+1] / Greedy 5×5 SNR 熱圖 | `dual_cell_summary.csv` |
+| B | 三種策略 per-cell SNR CDF | `dual_cell_summary.csv` |
+| C | sat[i+1] ROI coverage buildup 曲線（含 5 個閾值標記） | `dual_cell_result.csv` + `dual_overlap.json` |
+| D | 單星 SNR 熱圖 + min/max range bar | `grid_cell_summary.csv` |
+
+> **DRL 目標：** PPO 代理在 ns-3 全模擬環境中，全格平均 SNR 超越 Greedy 基準（3.13 dB），且 EF 違反率 < 1%、AF 違反率 < 5%。
+
 ---
 
 ## 3. 雙尺度框架
@@ -93,24 +249,9 @@ SatAntennaGainPattern::GetAntennaGain_lin(lat, lon)
 
 ### 3.3 資料流總覽
 
-```
-UT 回報 (channel state, demand, position)
-    ↓
-[Frame @ 503ms 起始]
-SatResourceManager
-    ├─ SatBeamPatternSelector → patternId[0..4] per beam
-    └─ SatUserAssociator     → utId→beamId assignment（含 WFQ/Priority/RR 排程邏輯）
-           ↓ BeamConfig（含 UT 分配與優先序）
-[Timeslot @ 每個 26.5ms 起始]
-SatTimeslotController
-    └─ SatPowerAllocator     → powerDbw per beam
-           ↓ SlotConfig
-[執行層（既有模組）]
-    ├─ SatBhObc              → beam switching 狀態機
-    ├─ SatGwCacheQueue       → 封包緩衝 / dequeue
-    ├─ SatBhPrecoder         → MMSE（cluster ≥ 2 beam）
-    └─ SatBhMetrics          → 被動 KPI 收集
-```
+
+![Data Flow](././Data-flow.png)
+
 
 ---
 
@@ -120,13 +261,20 @@ SatTimeslotController
 
 | 參數 | 值 |來源|
 |------|----|------|
-| 衛星軌道高度 | 550 km |LAYER1|
-| 載波頻率 | 20 GHz | 
-| 系統頻寬 | 400 MHz | 
-| 總功率預算 | 43 dBm | 
-| 接收天線增益 | 35 dBi | 
-| 雜訊功率 | -126.47 dBW | 
-| 最低仰角 |  | 
+| 星座 | Iridium NEXT-like 66 sats | constellation-iridium-next-66-sats |
+| 衛星數 / 軌道面 | 66 sats = 6 planes × 11 sats/plane | tles.txt header: "6 11" |
+| 衛星軌道高度 | ~636.5 km | TLE mean motion 14.80 rev/day → a = 7007.5 km |
+| 軌道傾角 | 86.4° | TLE line 2 field 3 |
+| 總 Beam 數 | 72 beams | fwdConf.txt: 72 entries |
+| 頻率複用色 | 5 colors | fwdConf.txt column 3: values 1–5 |
+| 活躍 GW 數 | 4（位置定義 5 個） | fwdConf.txt column 2: IDs 1–4；gw_positions.txt: 5 entries |
+| 天線 Pattern | SatAntennaGain72BeamsShifted | antennapatterns（pointer to SNS3 additional-input） |
+| 接收天線增益（peak） | min 50.14 / avg 51.36 / max 51.66 dBi | SatAntennaGain72BeamsShifted_*.txt（per-beam 查表，72 files） |
+| 標準 | DVB | standard/standard.txt |
+| 預設 MODCOD | 3（QPSK 1/3） | waveforms/default_waveform.txt |
+| 總功率預算 | 43 dBm | sat-bh-helper.h: totalPowerBudgetDbm{43.0} |
+| 雜訊功率 | -126.47 dBW | sat-bh-helper.h: noisePowerDbw{-126.47} |
+| 最低仰角 | 5.0° | beam-hopping-manager.cc: ElevationThresholdDeg default 5.0 |
 
 ### 4.2 時間結構參數
 
@@ -137,7 +285,7 @@ SatTimeslotController
 | Frame | T_frame | 503 ms |
 | Beam switching time | T_sw | 2 ms |
 | 指令傳播延遲 | T_prop | 10 ms |
-| 最多同時活躍 beam 數 | K |  |
+| 最多同時活躍 beam 數 | K | 2 ~ 4（basic=2，full=3，上限 4） |
 
 ### 4.3 波束模式參數（5 種候選）
 
@@ -492,12 +640,12 @@ Config::ConnectWithoutContext(
 
 ## 7. 實作 Phase
 
-### Phase A — 文件重寫（✅ 完成）
+### Phase A — 文件重寫
 重寫 Layer2.md 涵蓋雙尺度框架、所有模組規格。
 
 ---
 
-### Phase B — 資料模型擴充（✅ 完成）
+### Phase B — 資料模型擴充
 - `SatBhTimePlan` / `BhSlotEntry` 擴充：
   - 加入 `beamPatterns : std::map<uint32_t, BeamRadiusType>`（per-beam，取代 slot-wide `beamRadius`）
   - 加入 `scheduledUtIds`、`allocatedPowerDbw`、`frameId`
@@ -506,14 +654,14 @@ Config::ConnectWithoutContext(
 
 ---
 
-### Phase C — Frame-scale模組（✅ 完成）
+### Phase C — Frame-scale模組
 - `SatUserAssociator`：WFQ / Priority / RR + `MoveUtBetweenBeams` 接線（傳入 MAC Address）
 - `SatResourceManager`：Self-scheduling loop（503 ms）、整合 UserAssociator + PowerAllocator
 - `SatBeamPatternSelector`：**已確認不可在執行期動態切換**（SNS3 `SetTxAntennaGainPattern()` 只允許初始化一次）→ 改為 setup-time 靜態分配，為**選配功能（feature flag）**，視論文需求延後實作
 
 ---
 
-### Phase D — Slot-scale模組（✅ 完成）
+### Phase D — Slot-scale模組
 - `SatPowerAllocator`：IWFA water-filling 迭代功率最佳化
   - 最佳化變數：`m_eirpWoGainW` per beam（linear W）
   - 寫回：`phy->SetTxMaxPowerDbw(dBW)` + `phy->Initialize()`
@@ -521,7 +669,7 @@ Config::ConnectWithoutContext(
 
 ---
 
-### Phase E — 真實 SNS3 API 接線（✅ 完成，2026-05-14）
+### Phase E — 真實 SNS3 API 接線
 - `SatBhHelper::ConnectTracesPhaseE()`：
   1. `BuildUtAddressMap()`：建立 container index → MAC Address 映射（`SatNetDevice::GetAddress()`）
   2. `CacheOrbiterDevice()`：快取 `SatOrbiterNetDevice`（供 ApplyPowerCallback 使用）
@@ -533,13 +681,21 @@ Config::ConnectWithoutContext(
 
 ---
 
+### 前置 Phase 2.6 — 2D 程式碼模組化
+- `sat-phase2-grid.h/.cc`：封裝 Grid Mode（`CellStats`、`GridSimState`、`GridUpdateStep`、`RunGridMode`）
+- `sat-phase2-dual.h/.cc`：封裝 Dual Mode + Phase 2.3 Overlap 偵測（`DualCellStats`、`DualSimState`、`DualUpdateStep`、`RunDualMode`）
+- `exp_phase2_plots.py`：統一繪圖腳本，一鍵產生 Figure A–D（SNR 熱圖、CDF、Coverage Buildup、Grid 熱圖）
+- Phase 2 七步驟 SOP 已寫入 [03_beam_hopping.md](../Thesis/docs/installation/03_beam_hopping.md)
+
+---
+
 ### Phase F — 真實需求輸入（待實作）
 - `PollUtStates()`：目前使用合成需求 1000 kbps，Phase F 接 `SatGwMac` DAMA 請求佇列 trace
 - `SatResourceManager` channelGains：目前為 1.0，Phase F 接 `SatPhy::CnoInfo` trace
 
 ---
 
-## 8. Phase E 驗證結果（2026-05-14）
+## 8. Phase E 驗證結果
 
 ### 8.1 測試指令
 

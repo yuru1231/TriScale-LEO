@@ -1,0 +1,77 @@
+name: Refresh Figures
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    outputs:
+      type: ${{ steps.isCIUpdated.outputs.type }}
+      ciUpdated: ${{ steps.isCIUpdated.outputs.ciUpdated }}
+
+    name: Refresh Figures
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Check commit message
+        id: isCIUpdated
+        run: |
+          commitType=$(git log -1 --pretty=%B | awk -F'-' '{print $2}' | tr -d '\n')
+          if [[ $(git log -1 --pretty=%B) == *"GitHub Action Update"* ]]; then
+            if [[ $commitType != "Map" ]]; then
+              echo "type=${commitType}" >> $GITHUB_OUTPUT
+              echo "ciUpdated=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'poetry'
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Refresh figures
+        working-directory: plot
+        run: mkdir figures && poetry run python3 plot.py
+
+      - name: Push
+        uses: s0/git-publish-subdir-action@develop
+        env:
+          REPO: self
+          BRANCH: figures
+          FOLDER: plot/figures
+          SQUASH_HISTORY: false
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          MESSAGE: "Figure updated"
+          SKIP_EMPTY_COMMITS: true
+          CLEAR_GLOBS_FILE: ".clear-target-files"
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: Send Telegram notification
+      uses: appleboy/telegram-action@master
+      if: "${{ needs.build.outputs.ciUpdated == 'true' }}"
+      with:
+        to: ${{ secrets.TELEGRAM_TO }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        message: |
+          ${{ needs.build.outputs.type }} updated
+          See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
