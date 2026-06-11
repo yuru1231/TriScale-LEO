@@ -34,7 +34,6 @@
 #include "sat-tle-reader.h"
 
 #include "ns3/object.h"
-#include "ns3/ptr.h"
 #include "ns3/type-id.h"
 
 #include <array>
@@ -62,6 +61,7 @@ struct SatPassInfo
     double      peakElevTimeS{0.0};
     int         nCellsCovered{0};
     int         nSnrSamples{0};
+    double      altitudeM{0.0};   // actual orbital altitude at peak elevation (m), derived from SGP4
 };
 
 /** All parameters for one Run() call. */
@@ -71,7 +71,7 @@ struct ConstellationScanConfig
     double      roiLatDeg{35.676};
     double      roiLonDeg{139.65};
     int         gridD{5};
-    double      windowS{3600.0};
+    double      windowS{6000.0};   // one full Iridium orbital period (~100 min)
     double      dtScreenS{10.0};
     double      dtSnrS{1.0};
     double      minElevDeg{5.0};
@@ -101,9 +101,9 @@ struct SatScanState
     double               roiLonDeg{0.0};
     double               minElevDeg{0.0};
     SimConfig            cfg{};
-    std::vector<Vec3>    cellPos{};            // unused after Phase 2.1; beam centers recomputed per-tick
+    std::vector<Vec3>    cellPos{};            // unused; beam centers recomputed per-tick via GetEllipticBeamCenters
 
-    // Phase 2.1: along-track direction from consecutive satellite positions
+    // Along-track direction from consecutive satellite positions
     Vec3                 prevSatEnu{};         // satellite ENU at previous tick
     bool                 hasPrevSat{false};    // true after first valid tick
 
@@ -126,9 +126,10 @@ public:
     static TypeId GetTypeId();
 
     SatConstellationScanner() = default;
+    explicit SatConstellationScanner(const SatTleReader& tleReader);
 
     /** Inject the TLE reader before calling Run(). */
-    void SetTleReader(Ptr<SatTleReader> tleReader);
+    void SetTleReader(const SatTleReader& tleReader);
 
     /**
      * Run — execute the full constellation scan.
@@ -144,7 +145,7 @@ public:
     std::vector<SatPassInfo> Run(const ConstellationScanConfig& config);
 
 private:
-    Ptr<SatTleReader> m_tleReader{nullptr};
+    const SatTleReader* m_tleReader{nullptr};
 
     /** Elevation angle (deg) from satellite to ROI centre at tsinceMin. */
     double ComputeElevation(const SatTleEntry& sat,

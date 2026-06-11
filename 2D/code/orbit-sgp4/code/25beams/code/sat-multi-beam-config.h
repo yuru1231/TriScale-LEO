@@ -34,7 +34,7 @@ struct SimConfig
     double boltzmann{1.3806485e-23};    // J/K — Boltzmann constant
 
     // ---------- satellite orbit ----------
-    double hSatelliteM{600e3};          // m   — LEO altitude (600 km)
+    double hSatelliteM{634e3};          // m   — Iridium TLE epoch ~1999 actual altitude (SGP4: 634.2 km)
     double vSatelliteMs{7.56e3};        // m/s — orbital speed
     double rEarthM{6371e3};             // m   — mean Earth radius
 
@@ -61,7 +61,10 @@ struct SimConfig
     // ---------- service area ----------
     double latitudeCenterDeg{35.67619};  // deg N — Tokyo
     double longitudeCenterDeg{139.65031}; // deg E — Tokyo
-    double rFootprintM{100e3};           // m — footprint radius (configurable)
+    // Footprint radius override (m).  Set > 0 to override; ≤ 0 (default) → auto-compute
+    // from UPA geometry via GetFootprintRadius().  Use ≤ 0 for production runs; override
+    // only for calibration against SNS3 scenarios or reference-paper results.
+    double rFootprintM{0.0};
 
     // ---------- thermal noise ----------
     double temperatureK{300.0};         // K — UE receiver temperature
@@ -113,11 +116,42 @@ struct SimConfig
     }
 
     /**
-     * GetSatelliteAltitude — orbital radius (m).
+     * GetOrbitalRadius — orbital radius (m).
      */
     double GetOrbitalRadius() const
     {
         return rEarthM + hSatelliteM;
+    }
+
+    /**
+     * GetFootprintRadius — nadir beam-cluster footprint radius (m), derived from UPA geometry.
+     *
+     * The half-angle subtended by the nBeamsX/2 outermost beam columns:
+     *   α_cluster = arcsin( (⌊nBeamsX/2⌋ + 0.443) / nAntennaX )
+     * where 0.443 is the ULA HPBW fraction (1.772/4) that adds one half-beamwidth margin.
+     *
+     * Nadir footprint radius:
+     *   r_nadir = hSatelliteM × tan(α_cluster)
+     *
+     * For Iridium defaults (h=634 km, nBeamsX=5, nAntennaX=32):
+     *   α_cluster = arcsin(2.443/32) ≈ 4.37° → r_nadir ≈ 48 km
+     */
+    double GetFootprintRadius() const
+    {
+        const double halfBeams = static_cast<double>(nBeamsX / 2); // integer division
+        const double sinAlpha  = (halfBeams + 0.443) / static_cast<double>(nAntennaX);
+        const double alpha     = std::asin(std::min(sinAlpha, 1.0));
+        return hSatelliteM * std::tan(alpha);
+    }
+
+    /**
+     * GetEffectiveFootprintM — actual footprint radius used by all geometry functions.
+     * Returns rFootprintM when it is > 0 (calibration/override mode).
+     * Returns GetFootprintRadius() when rFootprintM ≤ 0 (default: auto-compute).
+     */
+    double GetEffectiveFootprintM() const
+    {
+        return (rFootprintM > 0.0) ? rFootprintM : GetFootprintRadius();
     }
 
     /**

@@ -13,9 +13,11 @@
  *   Peak at beam centre: |beam_gain|² = 1/Nbeams  (identical to Python).
  *
  * Path loss model:
- *   Uses SNS3 SatFreeSpaceLoss for the standalone FSPL helper, and ns-3's
- *   ThreeGppNTNDenseUrbanPropagationLossModel in LOS mode for total NTN path
- *   loss including 3GPP TR 38.811 atmospheric absorption.
+ *   ComputeFSPL_dB  — direct formula: 20·log10(4π·d·f/c).
+ *   ComputeAtmosphericLoss_dB — 3GPP NTN atmospheric component extracted from
+ *     ThreeGppNTNDenseUrbanPropagationLossModel (NTN total − Friis FSPL).
+ *     Accepts a freqHz parameter (default 30 GHz Ka-band).
+ *   ComputePathLoss_dB — FSPL + atmospheric, both at cfg.centerFreqHz.
  *
  * Rician fading (mirrors channel.get_Rician_fading_coefficient()):
  *   h = N(mu, sigma) + j·N(mu, sigma),  mu=√(K/(2(K+1))), sigma=√(1/(2(K+1)))
@@ -57,8 +59,7 @@ struct UserLinkResult
 
 /**
  * ComputeFSPL_dB
- * Free-space path loss in dB from SNS3 SatFreeSpaceLoss.
- *   L_fspl = 20·log10(4π·d·f / c)
+ * Free-space path loss: L_fspl = 20·log10(4π·d·f / c).
  *
  * @param distanceM  Slant range (m).
  * @param freqHz     Carrier frequency (Hz).
@@ -68,13 +69,14 @@ double ComputeFSPL_dB(double distanceM, double freqHz);
 
 /**
  * ComputeAtmosphericLoss_dB
- * Atmospheric absorption inferred from ns-3's 3GPP NTN LOS propagation model at
- * 30 GHz by subtracting the ns-3 Friis FSPL from the ns-3 NTN total path loss.
+ * Atmospheric attenuation extracted from ThreeGppNTNDenseUrbanPropagationLossModel:
+ *   atm_loss = NTN_total_loss(freqHz, elev) − FSPL(freqHz, 600 km / sin(elev))
  *
  * @param elevationDeg  Elevation angle (degrees, 0–90).
- * @return              Atmospheric attenuation (dB, positive).
+ * @param freqHz        Carrier frequency (Hz); default 30 GHz (Ka-band).
+ * @return              Atmospheric attenuation (dB, ≥ 0).
  */
-double ComputeAtmosphericLoss_dB(double elevationDeg);
+double ComputeAtmosphericLoss_dB(double elevationDeg, double freqHz = 30.0e9);
 
 /**
  * ComputePathLoss_dB

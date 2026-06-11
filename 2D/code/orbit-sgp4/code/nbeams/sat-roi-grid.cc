@@ -2,7 +2,7 @@
 /**
  * sat-roi-grid.cc
  *
- * Phase 2.0 — d×d rectangular ROI grid geometry implementation.
+ * d×d rectangular ROI grid geometry implementation.
  * Copied from phase2/code/ for use by the constellation scanner (orbit-sgp4).
  * See sat-roi-grid.h for full API documentation.
  */
@@ -21,7 +21,7 @@ namespace ns3
 RoiGrid
 GenerateRoiGrid(int d, double rFootprintM)
 {
-    // Phase 2.0: largest inscribed square inside the circular footprint.
+    // Largest inscribed square inside the circular footprint (nadir approximation).
     // A square of side s is inscribed in a circle of radius r when
     // s = r * sqrt(2)  (half-diagonal = r).
     const double sideM = rFootprintM * std::sqrt(2.0);
@@ -99,7 +99,7 @@ GetRoiCellIndexMap(const RoiGrid& grid)
 }
 
 // ---------------------------------------------------------------------------
-// ComputeEllipticFootprint — Phase 2.1 elliptic footprint parameters
+// ComputeEllipticFootprint — elliptic footprint parameters at given elevation
 // ---------------------------------------------------------------------------
 
 EllipticFootprint

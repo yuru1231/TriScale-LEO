@@ -67,7 +67,7 @@ std::vector<Vec3>
 GetRandomUserPositions(const SimConfig& cfg, uint32_t seed)
 {
     const double rE    = cfg.rEarthM;
-    const double rFoot = cfg.rFootprintM;
+    const double rFoot = cfg.GetEffectiveFootprintM();
     const int    nUser = cfg.nUser;
 
     // Uniform sphere-cap sampling
@@ -103,7 +103,7 @@ std::vector<Vec3>
 GetGridUserPositions(double spacingM, const SimConfig& cfg)
 {
     const double rE    = cfg.rEarthM;
-    const double rFoot = cfg.rFootprintM;
+    const double rFoot = cfg.GetEffectiveFootprintM();
 
     const int nTier = static_cast<int>(std::ceil(rFoot / spacingM + 1.0));
 
@@ -139,7 +139,7 @@ std::array<Vec3, 19>
 GetHexBeamCenters(const SimConfig& cfg)
 {
     const double rE    = cfg.rEarthM;
-    const double rFoot = cfg.rFootprintM;
+    const double rFoot = cfg.GetEffectiveFootprintM();
 
     // Cell angular radius unit (same as Python: 2*r_footprint/10/r_earth)
     const double cellRad = 2.0 * rFoot / 10.0 / rE;
@@ -343,7 +343,7 @@ std::array<Vec3, 19>
 GetBeamCentersFromSatPos(const Vec3& satEnu, const SimConfig& cfg)
 {
     const double rE    = cfg.rEarthM;
-    const double rFoot = cfg.rFootprintM;
+    const double rFoot = cfg.GetEffectiveFootprintM();
 
     // Step 1: Nadir direction — from satellite toward Earth centre.
     //   Earth centre in ROI ENU frame is at (0, 0, -rE).
@@ -424,38 +424,38 @@ GetEllipticBeamCenters(const Vec3& satEnu,
                        const Vec3& prevSatEnu,
                        const SimConfig& cfg)
 {
-    // Elevation angle at current satellite position
+    // Elevation angle at current satellite position (no floor — callers must assert ≥ minElevDeg)
     const double elevDeg = GetElevationAngleDeg_3D(satEnu);
-    const double elevRad = std::max(elevDeg, 5.0) * M_PI / 180.0;
+    const double elevRad = elevDeg * M_PI / 180.0;
+    const double sinE    = std::sin(elevRad);
 
-    // Elliptic footprint semi-axes
-    const double a    = cfg.rFootprintM / std::sin(elevRad);  // along-track
-    const double b    = cfg.rFootprintM;                       // cross-track
+    // Nadir footprint radius (derived from UPA geometry via GetEffectiveFootprintM)
+    const double r = cfg.GetEffectiveFootprintM();
+
+    // Elliptic footprint semi-axes — both elevation-dependent (D2):
+    //   b(ε) = r / sin(ε)       cross-track: slant-range scaling
+    //   a(ε) = r / sin²(ε)      along-track: slant-range × tilt factor
+    const double b = r / sinE;
+    const double a = r / (sinE * sinE);
 
     // Max inscribed rectangle half-widths
     const double wAlong = a / std::sqrt(2.0);
     const double hCross = b / std::sqrt(2.0);
 
-    // Cell pitch
+    // Cell pitch (uniform 5×5 subdivision of the inscribed rectangle)
     const double cellA = 2.0 * wAlong / 5.0;
     const double cellC = 2.0 * hCross / 5.0;
 
-    // Along-track unit vector (from satellite motion direction in ENU x-y plane)
+    // Along-track unit vector from satellite motion in ENU x-y plane.
+    // prevSatEnu must be pre-computed at (windowStart - dtSnrS) by Run() — no fallback.
     double dE = satEnu.x - prevSatEnu.x;
     double dN = satEnu.y - prevSatEnu.y;
     const double movLen = std::sqrt(dE * dE + dN * dN);
-    if (movLen < 1.0)
-    {
-        // Fallback: assume East-bound satellite
-        dE = 1.0;
-        dN = 0.0;
-    }
-    else
-    {
-        dE /= movLen;
-        dN /= movLen;
-    }
-    // Cross-track unit vector (90° left of along-track)
+    assert(movLen >= 1.0);  // fires if Run() did not pre-compute prevSatEnu
+    dE /= movLen;
+    dN /= movLen;
+
+    // Cross-track unit vector (90° CCW from along-track in ENU x-y)
     const double cE = -dN;
     const double cN =  dE;
 
@@ -467,8 +467,8 @@ GetEllipticBeamCenters(const Vec3& satEnu,
     {
         for (int col = -2; col <= 2; ++col)
         {
-            const double ao = static_cast<double>(col) * cellA;  // along-track offset
-            const double co = static_cast<double>(row) * cellC;  // cross-track offset
+            const double ao = static_cast<double>(col) * cellA;
+            const double co = static_cast<double>(row) * cellC;
             centers[idx++] = Vec3{ao * dE + co * cE,
                                    ao * dN + co * cN,
                                    0.0};

@@ -15,20 +15,13 @@
 #include "ns3/boolean.h"
 #include "ns3/channel-condition-model.h"
 #include "ns3/double.h"
-#include "ns3/geo-coordinate.h"
 #include "ns3/geocentric-constant-position-mobility-model.h"
 #include "ns3/propagation-loss-model.h"
-#include "ns3/satellite-constant-position-mobility-model.h"
-#include "ns3/satellite-free-space-loss.h"
-#include "ns3/satellite-mobility-model.h"
 #include "ns3/satellite-utils.h"
 #include "ns3/three-gpp-propagation-loss-model.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
-#include <limits>
-#include <numeric>
 
 namespace ns3
 {
@@ -54,6 +47,15 @@ FromDb(double db)
     return SatUtils::DbToLinear(db);
 }
 
+inline double
+DistanceM(const Vec3& a, const Vec3& b)
+{
+    const double dx = a.x - b.x;
+    const double dy = a.y - b.y;
+    const double dz = a.z - b.z;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 Ptr<GeocentricConstantPositionMobilityModel>
 CreateNtnMobility(const Vec3& pos, const SimConfig& cfg)
 {
@@ -62,21 +64,6 @@ CreateNtnMobility(const Vec3& pos, const SimConfig& cfg)
         Vector(cfg.latitudeCenterDeg, cfg.longitudeCenterDeg, 0.0));
     mobility->SetPosition(Vector(pos.x, pos.y, pos.z));
     return mobility;
-}
-
-Ptr<SatMobilityModel>
-CreateSatelliteMobility(const GeoCoordinate& position)
-{
-    auto mobility = CreateObject<SatConstantPositionMobilityModel>();
-    mobility->SetGeoPosition(position);
-    return mobility;
-}
-
-Ptr<SatFreeSpaceLoss>
-GetSatelliteFreeSpaceLossModel()
-{
-    static Ptr<SatFreeSpaceLoss> loss = CreateObject<SatFreeSpaceLoss>();
-    return loss;
 }
 
 Ptr<ThreeGppNTNDenseUrbanPropagationLossModel>
@@ -128,10 +115,9 @@ LocalCart2Pol3D(double x, double y, double z,
 // ---------------------------------------------------------------------------
 // ArrayTransform — precomputed per-frame rotation parameters.
 //
-// Phase 2.5 extension: adds a z-axis pre-rotation (cosZ, sinZ) that maps
-// the satellite's actual horizontal direction to the +x axis before applying
-// the existing y-axis rotation.  This fixes the Phase 2.0/2.2 approximation
-// where BuildArrayTransform assumed satPos.y = 0 (arc model only).
+// z-axis pre-rotation (cosZ, sinZ) maps the satellite's actual horizontal
+// direction to the +x axis before applying the y-axis rotation.
+// This fixes the arc-model approximation where satPos.y = 0 was assumed.
 // ---------------------------------------------------------------------------
 
 struct ArrayTransform
@@ -148,7 +134,7 @@ struct ArrayTransform
 /**
  * BuildArrayTransform — compute rotation parameters from satPos.
  *
- * Phase 2.5 steps:
+ * Steps:
  *   0. z-pre-rotation: cosZ = E_s / satHoriz, sinZ = N_s / satHoriz
  *   1. Shift satellite to array corner.
  *   2. tan_vec = [1, −satX / (satZ + r_earth)]
@@ -192,7 +178,7 @@ BuildArrayTransform(const Vec3& satPos, const SimConfig& cfg)
 /**
  * GetSpatialFreqs — compute UPA spatial frequencies (Φ_x, Φ_y) for one position.
  *
- * Phase 2.5: applies z-pre-rotation to pos before the existing transform.
+ * Applies z-pre-rotation to pos before the y-axis rotation.
  */
 inline void
 GetSpatialFreqs(const Vec3& pos, const ArrayTransform& at,
@@ -246,10 +232,8 @@ DirichletKernel2(int N, double dPhi)
 double
 ComputeFSPL_dB(double distanceM, double freqHz)
 {
-    auto txMob = CreateSatelliteMobility(GeoCoordinate(0.0, 0.0, 0.0));
-    auto rxMob = CreateSatelliteMobility(GeoCoordinate(0.0, 0.0, distanceM));
-
-    return GetSatelliteFreeSpaceLossModel()->GetFsldB(txMob, rxMob, freqHz);
+    NS_ABORT_MSG_IF(distanceM <= 0.0, "Distance must be positive");
+    return 20.0 * std::log10(4.0 * M_PI * distanceM * freqHz / 299792458.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,22 +241,24 @@ ComputeFSPL_dB(double distanceM, double freqHz)
 // ---------------------------------------------------------------------------
 
 double
-ComputeAtmosphericLoss_dB(double elevationDeg)
+ComputeAtmosphericLoss_dB(double elevationDeg, double freqHz)
 {
-    const double defaultKaBandHz = 30.0e9;
     const double txPowerDbm = 0.0;
-    const double distM = 600.0e3;
-    const double elevRad = std::max(1.0, elevationDeg) * M_PI / 180.0;
+    const double distM      = 600.0e3;
+    const double elevRad    = std::max(1.0, elevationDeg) * M_PI / 180.0;
+
     const Vec3 userPos{0.0, 0.0, 0.0};
     const Vec3 satPos{distM * std::cos(elevRad), 0.0, distM * std::sin(elevRad)};
+
     SimConfig cfg;
-    cfg.centerFreqHz = defaultKaBandHz;
+    cfg.centerFreqHz = freqHz;
 
     auto userMob = CreateNtnMobility(userPos, cfg);
-    auto satMob = CreateNtnMobility(satPos, cfg);
-    const double ntnLoss = -GetNtnLosPropagationLossModel(defaultKaBandHz)
+    auto satMob  = CreateNtnMobility(satPos,  cfg);
+
+    const double ntnLoss = -GetNtnLosPropagationLossModel(freqHz)
                                 ->CalcRxPower(txPowerDbm, userMob, satMob);
-    const double fspl = ComputeFSPL_dB(userMob->GetDistanceFrom(satMob), defaultKaBandHz);
+    const double fspl    = ComputeFSPL_dB(userMob->GetDistanceFrom(satMob), freqHz);
     return std::max(0.0, ntnLoss - fspl);
 }
 
@@ -283,9 +269,19 @@ ComputeAtmosphericLoss_dB(double elevationDeg)
 double
 ComputePathLoss_dB(const Vec3& userPos, const Vec3& satPos, const SimConfig& cfg)
 {
-    auto userMob = CreateNtnMobility(userPos, cfg);
-    auto satMob = CreateNtnMobility(satPos, cfg);
-    return -GetNtnLosPropagationLossModel(cfg.centerFreqHz)->CalcRxPower(0.0, userMob, satMob);
+    // Elevation is computed per-cell from the vector (satPos - userPos).
+    // userPos is the beam-centre ENU, so each of the 25 cells gets its own
+    // elevation angle — outer cells at low satellite elevation differ by up to
+    // ~0.83° from the ROI-centre elevation, which maps to ~3.7 dB at the
+    // 3 dB hard-cell threshold.  Per-cell computation is mandatory for
+    // correct hard-cell identification (D10).
+    const Vec3 delta{satPos.x - userPos.x, satPos.y - userPos.y, satPos.z - userPos.z};
+    const double distanceM    = DistanceM(userPos, satPos);
+    const double horizM       = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    const double elevationDeg = std::atan2(delta.z, horizM) * 180.0 / M_PI;
+
+    return ComputeFSPL_dB(distanceM, cfg.centerFreqHz) +
+           ComputeAtmosphericLoss_dB(elevationDeg, cfg.centerFreqHz);
 }
 
 // ---------------------------------------------------------------------------
@@ -334,25 +330,95 @@ SampleRicianAmplitude(double K, std::mt19937& rng)
 }
 
 // ---------------------------------------------------------------------------
+// ComputeBeamHoppingMatrix — full H[beam_target][obs_cell] SNR matrix
+// ---------------------------------------------------------------------------
+
+std::vector<BeamHoppingResult>
+ComputeBeamHoppingMatrix(const Vec3&              satPos,
+                          const std::vector<Vec3>& cellPos,
+                          const SimConfig&         cfg)
+{
+    const int    nCells   = static_cast<int>(cellPos.size());  // 25
+    const double noisePow = cfg.GetNoisePower();
+    const double txPow    = cfg.transmitPowerW;
+    const double gainLin  = FromDb(cfg.antennaGainDb);
+
+    // norm = Nx²·Ny²·nBeams  (nBeams=1 for single-beam BH: no inter-beam power split)
+    const double Nx2  = static_cast<double>(cfg.nAntennaX) * cfg.nAntennaX;
+    const double Ny2  = static_cast<double>(cfg.nAntennaY) * cfg.nAntennaY;
+    const double norm = Nx2 * Ny2 * static_cast<double>(cfg.nBeams);
+
+    // Build array transform once — shared for all beams and users this frame
+    const ArrayTransform at = BuildArrayTransform(satPos, cfg);
+
+    // Compute spatial frequencies for all cells once (used both as beam targets and users)
+    std::vector<double> phiX(nCells), phiY(nCells);
+    for (int i = 0; i < nCells; ++i)
+    {
+        GetSpatialFreqs(cellPos[i], at, phiX[i], phiY[i]);
+    }
+
+    // Compute path loss for each observation cell once — independent of beam target
+    std::vector<double> pathLossDb(nCells);
+    for (int u = 0; u < nCells; ++u)
+    {
+        pathLossDb[u] = ComputePathLoss_dB(cellPos[u], satPos, cfg);
+    }
+
+    // Build the nCells × nCells matrix:
+    //   outer loop b = beam target (which cell the beam is steered to)
+    //   inner loop u = observation cell (which cell's SNR we measure)
+    std::vector<BeamHoppingResult> matrix;
+    matrix.reserve(nCells * nCells);
+
+    for (int b = 0; b < nCells; ++b)
+    {
+        for (int u = 0; u < nCells; ++u)
+        {
+            const double dPhiX = phiX[u] - phiX[b];
+            const double dPhiY = phiY[u] - phiY[b];
+
+            const double AF_x2       = DirichletKernel2(cfg.nAntennaX, dPhiX);
+            const double AF_y2       = DirichletKernel2(cfg.nAntennaY, dPhiY);
+            const double beamGainPow = AF_x2 * AF_y2 / norm;
+
+            const double rxPow    = txPow * gainLin * beamGainPow / FromDb(pathLossDb[u]);
+            const double snrLin   = rxPow / noisePow;
+
+            matrix.push_back(BeamHoppingResult{
+                b,
+                u,
+                pathLossDb[u],
+                ToDb(beamGainPow) + cfg.antennaGainDb,
+                ToDb(snrLin)
+            });
+        }
+    }
+
+    return matrix;
+}
+
+// ---------------------------------------------------------------------------
 // ComputeFrameResults — mirrors simulation.py inner loop
 // ---------------------------------------------------------------------------
 
 std::vector<UserLinkResult>
 ComputeFrameResults(const Vec3&                    satPos,
                     const std::vector<Vec3>&        userPos,
-                    const std::array<Vec3, 25>&     beamCenters,
+                    const std::vector<Vec3>&        beamCenters,
                     const SimConfig&                cfg,
                     std::mt19937&                   rng,
                     bool                            withFading)
 {
     const int    nUser    = static_cast<int>(userPos.size());
-    const int    nBeams   = cfg.nBeams;        // 25
+    const int    nBeams   = cfg.nBeams;
     const double noisePow = cfg.GetNoisePower();
     const double txPow    = cfg.transmitPowerW;
     const double gainLin  = FromDb(cfg.antennaGainDb);
 
-    // Centre beam: row=0, col=0 → index (0+2)*5+(0+2) = 12
-    const int centreBeamIdx = 12;
+    // Centre beam: row=0, col=0 → index (halfY)*nBeamsX + halfX
+    // For 1×1: centreBeamIdx = 0; for 5×5: centreBeamIdx = 2*5+2 = 12
+    const int centreBeamIdx = (cfg.nBeamsY / 2) * cfg.nBeamsX + (cfg.nBeamsX / 2);
 
     // Precompute array transform and beam spatial frequencies once per frame
     const ArrayTransform at = BuildArrayTransform(satPos, cfg);

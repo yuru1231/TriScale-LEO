@@ -2,17 +2,17 @@
 /**
  * sat-roi-grid.h
  *
- * Phase 2.0 — d×d rectangular ROI grid geometry.
+ * d×d rectangular ROI grid geometry.
  *
  * Converts the circular satellite footprint to the largest inscribed square
  * and divides it into a d×d uniform grid of observation cells.  Each cell is
  * treated as an independent user position for SNR/SINR computation via
  * ComputeFrameResults().
  *
- * Phase 2.0 inscribed square (elevation = 90° approximation):
+ * Nadir approximation inscribed square (elevation = 90°):
  *   L = W = r_footprint × √2
  *
- * Phase 2.1 (implemented): elliptic footprint correction.
+ * Elliptic footprint correction (orbit-sgp4):
  *   semi-major a = r_footprint / sin(θ),  semi-minor b = r_footprint
  *   max inscribed rect: W_along = a/√2,  H_cross = b/√2
  *   Cell positions computed by GetEllipticBeamCenters() in sat-multi-beam-geometry.h.
@@ -100,7 +100,7 @@ struct RoiGrid
  *
  * Create a d×d RoiGrid inscribed in the circular footprint.
  *
- * Phase 2.0 inscribed rectangle (square approximation, elevation = 90°):
+ * Nadir-approximation inscribed rectangle (square, elevation = 90°):
  *   L_m = W_m = rFootprintM × √2
  *   Each cell: width = L_m / d,  height = W_m / d
  *
