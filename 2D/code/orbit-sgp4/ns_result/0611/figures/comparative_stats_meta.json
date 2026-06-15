@@ -1,0 +1,8 @@
+{
+  "script": "exp_comparative_analysis.py",
+  "date": "2026-06-14",
+  "source": "C:\\Users\\wenj\\Desktop\\TriScale-LEO\\2D\\code\\orbit-sgp4\\ns_result\\0611",
+  "parameters": {
+    "snr_thresh_db": 3.0
+  }
+}

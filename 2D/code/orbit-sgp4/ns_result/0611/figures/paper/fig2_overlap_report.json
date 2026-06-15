@@ -1,0 +1,10 @@
+{
+  "status": "overlap_found",
+  "best_sat": "sat_00263",
+  "best_t_s": 1441,
+  "peak_elev_deg": 25.24,
+  "n_bins_25beam": 25,
+  "n_bins_bh": 25,
+  "n_common_bins": 1,
+  "note": "Both panels use the same satellite ID and same timestamp, ensuring only beam activation strategy differs between panels."
+}
