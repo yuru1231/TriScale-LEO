@@ -1,279 +1,182 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" version="21.0.0">
-  <diagram name="Two-Pass Scan Algorithm" id="two-pass-scan">
-    <mxGraphModel dx="900" dy="2300" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="850" pageHeight="2300" math="0" shadow="0">
-      <root>
-        <mxCell id="0"/><mxCell id="1" parent="0"/>
-
-        <!-- Start -->
-        <mxCell id="n01" value="Start: SatConstellationScanner::Run()" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="20" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- LoadGrid -->
-        <mxCell id="n02" value="GenerateRoiGrid(d, r)&lt;br&gt;GetRoiCellPositions → cellPos&lt;br&gt;nInFP in-footprint cells" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="100" width="240" height="70" as="geometry"/>
-        </mxCell>
-
-        <!-- InitMrc -->
-        <mxCell id="n03" value="Reset MrcAccumulator&lt;br&gt;nCells = nInFP" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="200" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- Pass A Background -->
-        <mxCell id="bg_passA" value="Pass A — Pure C++ Elevation Screen" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;spacingTop=6;fontStyle=1;fontSize=12;opacity=60;" vertex="1" parent="1">
-          <mxGeometry x="30" y="280" width="680" height="650" as="geometry"/>
-        </mxCell>
-
-        <!-- ForSat -->
-        <mxCell id="n04" value="for each satellite (0..65)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="320" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- ForTime -->
-        <mxCell id="n05" value="for t = 0 to windowS, step dtScreenS" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="410" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- CalcElev -->
-        <mxCell id="n06" value="ComputeElevation:&lt;br&gt;SGP4 → ECI → ECEF → ENU → elevDeg" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="500" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- CheckElev diamond -->
-        <mxCell id="n07" value="elevDeg &gt;= minElevDeg?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="590" width="240" height="80" as="geometry"/>
-        </mxCell>
-
-        <!-- UpdateWindow -->
-        <mxCell id="n08" value="Update winStart,&lt;br&gt;winEnd, peakElev" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="455" y="605" width="200" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- Qualify diamond -->
-        <mxCell id="n09" value="winStart found?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="720" width="240" height="80" as="geometry"/>
-        </mxCell>
-
-        <!-- AppendPass -->
-        <mxCell id="n10" value="Append SatPassInfo&lt;br&gt;qualifyingSats.push_back" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="455" y="730" width="200" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- SkipSat -->
-        <mxCell id="n11" value="Skip (never above threshold)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="845" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- NextSat -->
-        <mxCell id="n12" value="Next satellite" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="455" y="845" width="200" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- Pass B Background -->
-        <mxCell id="bg_passB" value="Pass B — ns-3 Event Scheduling" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;verticalAlign=top;spacingTop=6;fontStyle=1;fontSize=12;opacity=60;" vertex="1" parent="1">
-          <mxGeometry x="30" y="960" width="680" height="390" as="geometry"/>
-        </mxCell>
-
-        <!-- ForQual -->
-        <mxCell id="n13" value="for each qualifying satellite" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1000" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- OpenCsv -->
-        <mxCell id="n14" value="Open sat_XXXXX_cells.csv&lt;br&gt;write header" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1090" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- ScheduleEvents -->
-        <mxCell id="n15" value="Simulator::Schedule events&lt;br&gt;for t in winStart..winEnd, step dtSnrS&lt;br&gt;callback = ScanSnrCallback(state*, t)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1180" width="240" height="70" as="geometry"/>
-        </mxCell>
-
-        <!-- SimRun -->
-        <mxCell id="n16" value="Simulator::Stop(windowS)&lt;br&gt;Simulator::Run()&lt;br&gt;Simulator::Destroy()" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1290" width="240" height="70" as="geometry"/>
-        </mxCell>
-
-        <!-- Callback Background -->
-        <mxCell id="bg_cb" value="ScanSnrCallback — triggered per satellite × timestep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#388e3c;verticalAlign=top;spacingTop=6;fontStyle=1;fontSize=12;opacity=60;" vertex="1" parent="1">
-          <mxGeometry x="30" y="1420" width="680" height="580" as="geometry"/>
-        </mxCell>
-
-        <!-- SgpEnu -->
-        <mxCell id="n17" value="SGP4 → ECI → ECEF → ENU&lt;br&gt;ComputeElevation_3D" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1460" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- CheckElev2 diamond -->
-        <mxCell id="n18" value="elevDeg &gt;= minElevDeg?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1550" width="240" height="80" as="geometry"/>
-        </mxCell>
-
-        <!-- SkipEvent -->
-        <mxCell id="n19" value="Return (below threshold)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="455" y="1565" width="200" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- EllipCorr -->
-        <mxCell id="n20" value="GetBeamCentersFromSatPos(satEnu, cfg)&lt;br&gt;elliptical correction" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1680" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- ComputeFrame -->
-        <mxCell id="n21" value="ComputeFrameResults&lt;br&gt;SNR / SINR / beamGain per cell" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1770" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- WriteCsv -->
-        <mxCell id="n22" value="Append to sat_XXXXX_cells.csv" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1860" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- AccumMrc -->
-        <mxCell id="n23" value="mrcAcc.data(timeKey)(i).linearSnrSum += SNR_i_linear&lt;br&gt;nSats += 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="1950" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- WriteMrc -->
-        <mxCell id="n24" value="WriteMrcCsv → mrc_combined.csv&lt;br&gt;10 * log10(sum SNR_i) per cell per timestep" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="2060" width="240" height="60" as="geometry"/>
-        </mxCell>
-
-        <!-- WriteJson -->
-        <mxCell id="n25" value="WriteStatusJson → constellation_status.json" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="2160" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- Done -->
-        <mxCell id="n26" value="Done: return passes vector" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="120" y="2250" width="240" height="50" as="geometry"/>
-        </mxCell>
-
-        <!-- ===== EDGES ===== -->
-
-        <mxCell id="e01" edge="1" source="n01" target="n02" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e02" edge="1" source="n02" target="n03" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e03" edge="1" source="n03" target="n04" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e04" edge="1" source="n04" target="n05" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e05" edge="1" source="n05" target="n06" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e06" edge="1" source="n06" target="n07" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <!-- CheckElev Yes → UpdateWindow -->
-        <mxCell id="e07" value="Yes" edge="1" source="n07" target="n08" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <!-- UpdateWindow → ForTime (loop back, right side) -->
-        <mxCell id="e08" value="loop" style="edgeStyle=elbowEdgeStyle;" edge="1" source="n08" target="n05" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="690" y="630"/>
-              <mxPoint x="690" y="435"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- CheckElev No → ForTime (loop back, left side) -->
-        <mxCell id="e09" value="No" edge="1" source="n07" target="n05" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="50" y="630"/>
-              <mxPoint x="50" y="435"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- ForTime → Qualify (loop exit, right side bypass) -->
-        <mxCell id="e10" value="all t done" edge="1" source="n05" target="n09" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="700" y="435"/>
-              <mxPoint x="700" y="760"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- Qualify Yes → AppendPass -->
-        <mxCell id="e11" value="Yes" edge="1" source="n09" target="n10" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <!-- AppendPass → NextSat -->
-        <mxCell id="e12" edge="1" source="n10" target="n12" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <!-- Qualify No → SkipSat -->
-        <mxCell id="e13" value="No" edge="1" source="n09" target="n11" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <!-- SkipSat → NextSat -->
-        <mxCell id="e14" edge="1" source="n11" target="n12" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <!-- NextSat → ForSat (loop back, right side) -->
-        <mxCell id="e15" value="loop" edge="1" source="n12" target="n04" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="720" y="870"/>
-              <mxPoint x="720" y="345"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- ForSat → ForQual (all sats done, left side bypass) -->
-        <mxCell id="e16" value="all sats done" edge="1" source="n04" target="n13" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="20" y="345"/>
-              <mxPoint x="20" y="1025"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <mxCell id="e17" edge="1" source="n13" target="n14" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e18" edge="1" source="n14" target="n15" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <!-- ScheduleEvents → ForQual (loop back, left side) -->
-        <mxCell id="e19" value="next sat" edge="1" source="n15" target="n13" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="50" y="1215"/>
-              <mxPoint x="50" y="1025"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- ForQual → SimRun (all sats scheduled, right side bypass) -->
-        <mxCell id="e20" value="all sats scheduled" edge="1" source="n13" target="n16" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="700" y="1025"/>
-              <mxPoint x="700" y="1325"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- SimRun → SgpEnu (triggers callback, dashed) -->
-        <mxCell id="e21" value="triggers callback" style="dashed=1;endArrow=open;endFill=0;fontSize=10;" edge="1" source="n16" target="n17" parent="1">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="e22" edge="1" source="n17" target="n18" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <!-- CheckElev2 Yes → EllipCorr -->
-        <mxCell id="e23" value="Yes" edge="1" source="n18" target="n20" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <!-- CheckElev2 No → SkipEvent -->
-        <mxCell id="e24" value="No" edge="1" source="n18" target="n19" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <mxCell id="e25" edge="1" source="n20" target="n21" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e26" edge="1" source="n21" target="n22" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e27" edge="1" source="n22" target="n23" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <!-- SimRun → WriteMrc (after Destroy(), left side bypass) -->
-        <mxCell id="e28" value="after Destroy()" edge="1" source="n16" target="n24" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="20" y="1325"/>
-              <mxPoint x="20" y="2090"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <mxCell id="e29" edge="1" source="n24" target="n25" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e30" edge="1" source="n25" target="n26" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-      </root>
-    </mxGraphModel>
-  </diagram>
+<mxfile host="65bd71144e">
+    <diagram name="Two-Pass Scan" id="scan-01">
+        <mxGraphModel dx="1760" dy="998" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="orbit-sgp4 — Two-Pass Constellation Scan Algorithm" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="20" width="900" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="S" value="START&#xa;ConstellationScanConfig" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="70" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="A1" value="SatTleReader::Load()&#xa;Parse tles.txt + fwdConf.txt&#xa;Initialize SGP4 (66 x elsetrec)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="155" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="A2" value="Compute observer ECEF&#xa;obsEcef = rEarth x {cos(lat)cos(lon), cos(lat)sin(lon), sin(lat)}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="250" width="280" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="PA_HDR" value="PASS A — Coarse Elevation Screen (Pure C++)" style="text;html=1;strokeColor=#9673a6;fillColor=#e1d5e7;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="340" width="860" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="A3" value="For each satellite i in 1..66" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="395" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="A4" value="For t = 0 to windowS, step dtScreenS&#xa;(default: t = 0, 10, 20, ... 3600 s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="485" width="280" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="A5" value="ComputeElevation(sat, t/60, epochJd, lat, lon, rEarth)&#xa;(1) sgp4(satrec, t/60) -&gt; r_eci&#xa;(2) EciToEcef(r_eci, jdNow) -&gt; r_ecef&#xa;(3) EcefOffsetToEnu(delta_r, lat, lon) -&gt; satEnu&#xa;(4) GetElevationAngleDeg_3D(satEnu) -&gt; epsilon" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="570" width="340" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="A6" value="epsilon &gt;= minElevDeg?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#b85450;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="700" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="A7" value="if winStart &lt; 0: winStart = t&#xa;winEnd = t&#xa;if epsilon &gt; peakElev: peakElev = epsilon, peakT = t" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="660" y="695" width="260" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="A8" value="All t done?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="800" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="A9" value="winStart &gt;= 0?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffcdd2;strokeColor=#b85450;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="890" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="A10" value="Store SatPassInfo&#xa;qualifyingSats.push_back(sat)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="660" y="892" width="240" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="A11" value="Skip satellite" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666;fontSize=10;fontColor=#333;" parent="1" vertex="1">
+                    <mxGeometry x="150" y="892" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="A12" value="All 66 sats done?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="975" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="PB_HDR" value="PASS B — Fine SNR Scan (ns-3 Event Scheduler)" style="text;html=1;strokeColor=#9673a6;fillColor=#e1d5e7;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="1060" width="860" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="B1" value="For each qualifying satellite" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="1115" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="B2" value="Allocate SatScanState (heap)&#xa;Open sat_XXXXX_cells.csv&#xa;Write CSV header" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="1205" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="B3" value="For t = winStart to winEnd, step dtSnrS&#xa;Simulator::Schedule(Seconds(t), ScanSnrCallback, state, t)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="1300" width="320" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="B4" value="All qualifying sats scheduled?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="410" y="1395" width="240" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="B5" value="Simulator::Stop(windowS)&#xa;Simulator::Run()&#xa;All satellites concurrent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#9933cc;strokeColor=#6600aa;fontColor=#ffffff;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="1485" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="B6" value="Simulator::Destroy()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="1580" width="220" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="B7" value="Collect nSnrSamples per satellite&#xa;WriteStatusJson() -&gt; constellation_status.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="1655" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="END" value="RETURN&#xa;vector&lt;SatPassInfo&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="1745" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="eS1" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="S" target="A1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A1" target="A2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A2" target="A3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA34" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A3" target="A4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA45" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A4" target="A5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA56" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A5" target="A6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA6y" value="Yes" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A6" target="A7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA6n" value="No" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A6" target="A8" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="530" y="760"/>
+                            <mxPoint x="530" y="827"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eA7back" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A7" target="A8" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="790" y="800"/>
+                            <mxPoint x="530" y="827"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eA8loop" value="No (next t)" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A8" target="A4" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="200" y="827"/>
+                            <mxPoint x="200" y="512"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eA8y" value="Yes" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A8" target="A9" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA9y" value="Yes" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A9" target="A10" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA9n" value="No" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A9" target="A11" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA10_12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A10" target="A12" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA11_12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="A11" target="A12" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eA12loop" value="No (next sat)" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A12" target="A3" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="160" y="1002"/>
+                            <mxPoint x="160" y="425"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eA12y" value="Yes" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="A12" target="B1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="B1" target="B2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="B2" target="B3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB34" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="B3" target="B4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB4loop" value="No (next sat)" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="B4" target="B1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="160" y="1425"/>
+                            <mxPoint x="160" y="1145"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="eB4y" value="Yes" style="edgeStyle=orthogonalEdgeStyle;fontSize=9;" parent="1" source="B4" target="B5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB56" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="B5" target="B6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB67" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="B6" target="B7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eB7E" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="B7" target="END" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
 </mxfile>
