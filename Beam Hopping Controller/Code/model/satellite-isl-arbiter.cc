@@ -1,0 +1,81 @@
+/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/*
+ * Copyright (c) 2013 Magister Solutions Ltd
+ * Copyright (c) 2018 CNES
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation;
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * Inspired and adapted from Hypatia: https://github.com/snkas/hypatia
+ *
+ * Author: Bastien Tauran <bastien.tauran@viveris.fr>
+ */
+
+#include "satellite-isl-arbiter.h"
+
+#include "satellite-id-mapper.h"
+
+#include <ns3/singleton.h>
+
+NS_LOG_COMPONENT_DEFINE("SatIslArbiter");
+
+namespace ns3
+{
+
+NS_OBJECT_ENSURE_REGISTERED(SatIslArbiter);
+
+TypeId
+SatIslArbiter::GetTypeId(void)
+{
+    static TypeId tid = TypeId("ns3::SatIslArbiter").SetParent<Object>();
+    return tid;
+}
+
+SatIslArbiter::SatIslArbiter()
+{
+    NS_LOG_FUNCTION(this);
+
+    NS_FATAL_ERROR("Default constructor not in use");
+}
+
+SatIslArbiter::SatIslArbiter(Ptr<Node> node)
+{
+    NS_LOG_FUNCTION(this << node);
+
+    m_nodeId = node->GetId();
+}
+
+int32_t
+SatIslArbiter::BaseDecide(Ptr<Packet> pkt, Mac48Address destination)
+{
+    NS_LOG_FUNCTION(this << pkt << destination);
+
+    int32_t targetId = Singleton<SatIdMapper>::Get()->GetSatIdWithMacIsl(destination);
+
+    if (targetId == -1)
+    {
+        // A destination can temporarily be absent from the ISL map while a
+        // UT/GW handover is in progress, or when a stale packet reaches a
+        // satellite after the destination has disconnected.  Let the caller
+        // use its existing no-route/drop path instead of aborting the entire
+        // simulation.
+        NS_LOG_WARN("Cannot resolve ISL target for destination "
+                    << destination << " at source satellite node " << m_nodeId
+                    << " (packet UID " << pkt->GetUid() << ")");
+        return -1;
+    }
+
+    return Decide(m_nodeId, targetId, pkt);
+}
+
+} // namespace ns3
