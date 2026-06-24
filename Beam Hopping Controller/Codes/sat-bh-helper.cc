@@ -15,6 +15,8 @@
  */
 
 #include "sat-bh-helper.h"
+#include "sat-constellation-params.h"
+#include "sat-greedy-bstp-provider.h"
 
 #include "ns3/boolean.h"
 #include "ns3/double.h"
@@ -26,16 +28,19 @@
 #include "ns3/satellite-beam-helper.h"         // SatBeamHelper::GetBeams(), GetNcc()
 #include "ns3/satellite-beam-scheduler.h"      // SatBeamScheduler::BacklogRequestsTrace (Phase F)
 #include "ns3/satellite-id-mapper.h"           // SatIdMapper::GetUtIdWithMac (Phase F)
-#include "ns3/satellite-net-device.h"          // SatNetDevice: UT MAC address lookup
+#include "ns3/satellite-mac.h"                 // SatMac::GetBeamId() — used by BuildBeamToggleMap
+#include "ns3/satellite-net-device.h"          // SatNetDevice: GetMac(), ToggleState()
 #include "ns3/satellite-ncc.h"                 // SatNcc::MoveUtBetweenBeams, GetBeamScheduler
 #include "ns3/satellite-orbiter-net-device.h"  // SatOrbiterNetDevice::GetUserPhy
 #include "ns3/satellite-phy.h"                 // SatPhy::SetTxMaxPowerDbw + Initialize
-#include "ns3/satellite-topology.h"            // SatTopology: GetUtNodes, GetUtBeamId
+#include "ns3/satellite-topology.h"            // SatTopology: GetUtNodes, GetGwNodes, GetUtBeamId
 #include "ns3/simulation-helper.h"             // SimulationHelper::GetSatelliteHelper
 #include "ns3/singleton.h"                     // Singleton<SatTopology/SatIdMapper>::Get()
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <set>
 #include <fstream>
 #include <iostream>
 #include <sstream>   // std::istringstream for OnBacklogRequestTrace parsing
@@ -58,16 +63,17 @@ SatBhHelper::GetTypeId()
 
 SatBhHelper::SatBhHelper()
     : m_syntheticSlotIdx(0),
-      m_installed(false)
+      m_installed(false),
+      m_dynamicPlanId(0)
 {
-    // Default config is Phase 1 only (basic validation scenario)
-    m_cfg.numBeams         = 2;   // Iridium-66: max 2 beams per satellite
-    m_cfg.maxActiveBeams   = 2;   // K=2 for basic scenario
-    m_cfg.numHotspotBeams  = 3;
+    // Default config: Phase 1, Starlink-1584, Tokyo 37°, K_b=2, 5×5 grid
+    m_cfg.numBeams         = 7;   // leo2sat default; starlink25 sets 25 via Configure()
+    m_cfg.maxActiveBeams   = 2;   // K_b=2 (confirmed viable at 37° SNR margin)
+    m_cfg.numHotspotBeams  = 3;   // legacy fallback; overridden by hotCellIndices
     m_cfg.satId            = 0;
     m_cfg.warmUpSec        = 10.0;
-    m_cfg.bhtpPeriodMs     = 503.0;
-    m_cfg.slotDurationMs   = 26.5;
+    m_cfg.bhtpPeriodMs     = 80.0;   // 80 ms frame = 8 slots
+    m_cfg.slotDurationMs   = 10.0;   // 10 ms per slot
     m_cfg.enableScheduler  = false;
     m_cfg.enableObc        = false;
     m_cfg.enableCacheQueue = false;
@@ -188,7 +194,20 @@ SatBhHelper::Install()
 
     // Export BHTP slot table to CSV
     {
+        std::filesystem::path planPath(m_cfg.timePlanCsvFile);
+        if (planPath.has_parent_path())
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(planPath.parent_path(), ec);
+            NS_ASSERT_MSG(!ec,
+                          "SatBhHelper: cannot create time-plan output directory for "
+                              << m_cfg.timePlanCsvFile << ": " << ec.message());
+        }
+
         std::ofstream planCsv(m_cfg.timePlanCsvFile);
+        NS_ASSERT_MSG(planCsv.is_open(),
+                      "SatBhHelper: cannot open time-plan output file: "
+                          << m_cfg.timePlanCsvFile);
         planCsv << m_staticPlan->ToCsv();
         NS_LOG_INFO("SatBhHelper: BHTP slot table written to " << m_cfg.timePlanCsvFile);
     }
@@ -204,7 +223,14 @@ SatBhHelper::Install()
     // plan-ready callback directly to the already-constructed m_obc object.
 
     if (m_cfg.enableObc)
+    {
         SetupObc();
+        // Build the {satId, beamId} → GW SatNetDevice map immediately after OBC is created.
+        // OBC callbacks capture `this` and read m_beamToggleMap at call-time, so
+        // the map just needs to be filled before simulation events fire (t=0).
+        // This is independent of ResourceManager / Phase E — no guard needed.
+        BuildBeamToggleMap();
+    }
 
     if (m_cfg.enableScheduler)
         SetupScheduler();
@@ -221,9 +247,14 @@ SatBhHelper::Install()
     ConnectTraces();
 
     // ── Start metrics flush loop ──────────────────────────────────────────
-    // Begin periodic flushing after warm-up period
-    Simulator::Schedule(Seconds(m_cfg.warmUpSec),
-                        &SatBhMetrics::ScheduleNextFlush, m_metrics);
+    // Phase G (enableDynamicBstp): flush is driven by RunDynamicBstpCycle()
+    // so it fires exactly once per T_p at the cycle boundary.
+    // Phase 1 / static plan: use periodic timer anchored to warmUpSec.
+    if (!m_cfg.enableDynamicBstp)
+    {
+        Simulator::Schedule(Seconds(m_cfg.warmUpSec),
+                            &SatBhMetrics::ScheduleNextFlush, m_metrics);
+    }
 
     // ── Start synthetic slot driver (when OBC is not yet active) ─────────
     if (!m_cfg.enableObc)
@@ -299,15 +330,31 @@ SatBhHelper::Install()
 
     // ── Phase F wiring ────────────────────────────────────────────────────
     // Connects BacklogRequestsTrace on every SatBeamScheduler so that real
-    // RBDC demand replaces the synthetic 0.0 fallback in PollUtStates().
-    // Requires Phase E (which calls BuildUtAddressMap and populates the
-    // SatIdMapper reverse-lookup m_satMapperIdToContainerIdx).
+    // RBDC demand is available.  Two activation paths:
+    //
+    //   (a) Phase E active (enablePhaseE=true + ResourceManager):
+    //       BuildUtAddressMap() was already called in ConnectTracesPhaseE().
+    //       Demand flows: trace → m_utDemandCache → PollUtStates() → ResourceManager.
+    //
+    //   (b) Phase G active (enableDynamicBstp=true), Phase E not required:
+    //       BuildUtAddressMap() is called here if the map was not built by Phase E.
+    //       Demand flows: trace → OnBacklogRequestTrace() → m_dynamicProvider->UpdateBeamDemand().
+    //       ResourceManager and PollUtStates() are not involved.
+    //
+    // In both cases m_satMapperIdToContainerIdx must be populated before the trace fires.
     if (m_cfg.enablePhaseF)
     {
-        if (!m_cfg.enablePhaseE)
+        // Phase F is valid when Phase E is fully active, or when Phase G is active
+        // (Phase G feeds demand directly through m_dynamicProvider without ResourceManager).
+        bool phaseEReady = m_cfg.enablePhaseE && (m_resourceManager != nullptr);
+        bool phaseFForG  = m_cfg.enableDynamicBstp;
+
+        if (!phaseEReady && !phaseFForG)
         {
-            NS_LOG_WARN("SatBhHelper: enablePhaseF=true but enablePhaseE=false"
-                        " — Phase F skipped. Add --enablePhaseE=1.");
+            NS_LOG_WARN("SatBhHelper: enablePhaseF=true but neither Phase E nor Phase G active"
+                        " — Phase F skipped."
+                        " Enable with --enablePhaseE=1 --enableResourceManager=1 (full path)"
+                        " or --enableDynamicBstp=1 (Phase G demand path).");
         }
         else if (!m_simHelper)
         {
@@ -316,7 +363,39 @@ SatBhHelper::Install()
         }
         else
         {
+            // If Phase E did not run, BuildUtAddressMap was never called.
+            // Build it now (best-effort — some UTs may not be in SatIdMapper yet).
+            if (!phaseEReady && m_satMapperIdToContainerIdx.empty())
+            {
+                NS_LOG_INFO("SatBhHelper: Phase E not active — building UT address map"
+                            " for Phase F demand parsing (Phase G path)");
+                BuildUtAddressMap();
+            }
             ConnectTracesPhaseF();
+
+            // SatIdMapper registration is NOT guaranteed complete at Install() time.
+            // UTs that have not yet called AttachMacAddress are absent from the map,
+            // causing OnBacklogRequestTrace to silently drop their RBDC updates.
+            // Rebuild the map at t=0.5 s (before the first BacklogRequestsTrace at ~1 s)
+            // so all 25 UTs are present when demand starts arriving.
+            Simulator::Schedule(MilliSeconds(500), &SatBhHelper::BuildUtAddressMap, this);
+        }
+    }
+
+    // ── Phase G: Dynamic BSTP Provider ───────────────────────────────────
+    // Demand-greedy top-K beam selector.  Mutually exclusive with Phase 2
+    // Scheduler: if both are enabled, Scheduler wins and Phase G is skipped.
+    if (m_cfg.enableDynamicBstp)
+    {
+        if (m_cfg.enableScheduler)
+        {
+            NS_LOG_WARN("SatBhHelper: enableDynamicBstp=true but enableScheduler=true"
+                        " — Phase G skipped (Scheduler takes priority)."
+                        " Set enableScheduler=false to use the dynamic provider.");
+        }
+        else
+        {
+            SetupDynamicBstp();
         }
     }
 
@@ -330,6 +409,11 @@ SatBhHelper::GetCurrentPlan() const
 {
     if (m_scheduler)
         return m_scheduler->GetCurrentPlan();
+    // Phase G: OBC receives plans via RunDynamicBstpCycle but m_staticPlan is NOT
+    // updated when OBC is active — return the last plan delivered to the provider
+    // instead so callers see the current dynamic plan rather than the stale static one.
+    if (m_lastDynamicPlan)
+        return m_lastDynamicPlan;
     return m_staticPlan;
 }
 
@@ -354,22 +438,58 @@ SatBhHelper::BuildStaticBhtp(Time periodStart)
 
     const uint32_t K = m_cfg.maxActiveBeams;
     const uint32_t N = m_cfg.numBeams;
-    const uint32_t H = std::min(m_cfg.numHotspotBeams, N);
 
-    // M = ceil(T_p / T_s) = 19 for default parameters
+    // M = floor(T_p / T_s) slots per frame — e.g. 80 ms / 10 ms = 8
     const uint32_t M = static_cast<uint32_t>(
         std::ceil(m_cfg.bhtpPeriodMs / m_cfg.slotDurationMs));
 
-    // Collect hotspot and non-hotspot beam IDs (1-indexed per SNS3 convention)
+    // Collect hotspot and non-hotspot beam IDs (1-indexed per SNS3 convention).
+    // When hotCellIndices is set, use explicit 0-indexed cell positions; otherwise
+    // fall back to legacy numHotspotBeams (first H beams are hotspot).
     std::vector<uint32_t> hotspot, nonHotspot;
-    for (uint32_t i = 1; i <= N; i++)
+    if (!m_cfg.hotCellIndices.empty())
     {
-        if (i <= H) hotspot.push_back(i);
-        else        nonHotspot.push_back(i);
+        // Build a lookup set from 0-indexed cell positions for O(1) membership test
+        std::set<uint32_t> hotSet(m_cfg.hotCellIndices.begin(), m_cfg.hotCellIndices.end());
+        for (uint32_t i = 1; i <= N; i++)
+        {
+            uint32_t cellIdx = i - 1;  // convert 1-indexed beamId to 0-indexed cell
+            if (hotSet.count(cellIdx)) hotspot.push_back(i);
+            else                       nonHotspot.push_back(i);
+        }
+    }
+    else
+    {
+        // Legacy: first numHotspotBeams beams are hotspot
+        const uint32_t H = std::min(m_cfg.numHotspotBeams, N);
+        for (uint32_t i = 1; i <= N; i++)
+        {
+            if (i <= H) hotspot.push_back(i);
+            else        nonHotspot.push_back(i);
+        }
     }
 
-    // Fill M slots round-robin: pair hotspot + non-hotspot beams
-    // If K > 2, extend to fill remaining beam slots with additional pairings
+    // Slot allocation strategy (Phase 1, all beams use MIDDLE 2.0° pattern):
+    //   Standard slots: 1 hotspot beam + (K-1) non-hotspot beams, round-robin
+    //   Overflow slots: K non-hotspot beams — used when nonHotspot.size() > M
+    //
+    // When numNonHotspot > M, standard allocation leaves the last
+    // (numNonHotspot - M) beams unserved.  To cover them within the same T_p,
+    // the first `overflowSlots` are filled with K non-hotspot beams instead of
+    // the usual 1 hotspot + (K-1) non-hotspot, trading hotspot dwell for full coverage.
+    //
+    // Overflow slots handle the case where nonHotspot.size() > M with NO hotspot beams.
+    // When hotspot beams exist, every slot uses 1 hotspot + (K-1) non-hotspot (round-robin),
+    // so non-hotspot beams simply cycle across multiple frame periods — overflowSlots = 0.
+    // Example (starlink25): N=25, K_b=2, M=8, hotspot=5, nonHotspot=20
+    //   → overflowSlots=0: all 8 slots serve 1 hotspot + 1 non-hotspot (20 beams cycle in 2.5 frames)
+    // Example (legacy, no hotspot): N=7, K_b=2, M=8, hotspot=0, nonHotspot=7
+    //   → overflowSlots=0 (7 < 8), all slots serve 2 non-hotspot beams
+    uint32_t overflowSlots = (!hotspot.empty()) ? 0U
+        : (nonHotspot.size() > M)
+            ? static_cast<uint32_t>(nonHotspot.size() - M)
+            : 0U;
+
     uint32_t hotIdx    = 0;
     uint32_t nonHotIdx = 0;
 
@@ -380,26 +500,42 @@ SatBhHelper::BuildStaticBhtp(Time periodStart)
         slot.duration   = T_s;
         slot.modcod     = 5;  // placeholder MODCOD
 
-        // Fill up to K beams: alternate hotspot / non-hotspot, with per-beam pattern
-        for (uint32_t k = 0; k < K; k++)
+        if (slotIdx < overflowSlots)
         {
-            if (k % 2 == 0 && !hotspot.empty())
-            {
-                uint32_t bid = hotspot[hotIdx % hotspot.size()];
-                slot.beamIds.push_back(bid);
-                slot.clusterIds.push_back(bid);
-                // Hotspot → SMALL: narrow beam concentrates gain on high-demand area
-                slot.SetBeamPattern(bid, BeamRadiusType::SMALL);
-                if (k == 0) hotIdx++;
-            }
-            else if (!nonHotspot.empty())
+            // Overflow slot: fill with K MIDDLE beams to cover non-hotspot overflow.
+            // No hotspot beam in these slots — hotspot dwell reduced proportionally.
+            for (uint32_t k = 0; k < K && !nonHotspot.empty(); k++)
             {
                 uint32_t bid = nonHotspot[nonHotIdx % nonHotspot.size()];
                 slot.beamIds.push_back(bid);
                 slot.clusterIds.push_back(bid);
-                // Non-hotspot → LARGE: wide beam provides coverage over low-demand area
-                slot.SetBeamPattern(bid, BeamRadiusType::LARGE);
+                slot.SetBeamPattern(bid, BeamRadiusType::MIDDLE);
                 nonHotIdx++;
+            }
+        }
+        else
+        {
+            // Standard slot: 1 hotspot + (K-1) non-hotspot, all MIDDLE pattern
+            for (uint32_t k = 0; k < K; k++)
+            {
+                if (k % 2 == 0 && !hotspot.empty())
+                {
+                    uint32_t bid = hotspot[hotIdx % hotspot.size()];
+                    slot.beamIds.push_back(bid);
+                    slot.clusterIds.push_back(bid);
+                    // Unified 2.0° MIDDLE pattern for all beams (Phase 1 simplification)
+                    slot.SetBeamPattern(bid, BeamRadiusType::MIDDLE);
+                    if (k == 0) hotIdx++;
+                }
+                else if (!nonHotspot.empty())
+                {
+                    uint32_t bid = nonHotspot[nonHotIdx % nonHotspot.size()];
+                    slot.beamIds.push_back(bid);
+                    slot.clusterIds.push_back(bid);
+                    // Unified 2.0° MIDDLE pattern for all beams (Phase 1 simplification)
+                    slot.SetBeamPattern(bid, BeamRadiusType::MIDDLE);
+                    nonHotIdx++;
+                }
             }
         }
 
@@ -410,7 +546,8 @@ SatBhHelper::BuildStaticBhtp(Time periodStart)
     NS_LOG_INFO("SatBhHelper::BuildStaticBhtp: created plan with "
                 << plan->GetNumSlots() << " slots"
                 << " (M=" << M << ", K=" << K
-                << ", N=" << N << ", hotspot=" << H << ")");
+                << ", N=" << N << ", hotspots=" << hotspot.size()
+                << ", overflowSlots=" << overflowSlots << ")");
 
     return plan;
 }
@@ -446,8 +583,11 @@ SatBhHelper::ApplySyntheticSlot()
         if (m_cacheQueue)
             m_cacheQueue->DequeueAll(beamId);
 
-        // Simulate packet receptions
-        bool     isHotspot = (beamId <= m_cfg.numHotspotBeams);
+        // Simulate packet receptions — hotspot check uses hotCellIndices (0-indexed)
+        const auto& hci = m_cfg.hotCellIndices;
+        bool isHotspot = !hci.empty()
+            ? std::find(hci.begin(), hci.end(), beamId - 1) != hci.end()
+            : (beamId <= m_cfg.numHotspotBeams);
         uint32_t numPkts   = isHotspot ? 5 : 2;
         uint32_t pktSize   = isHotspot ? 1500 : 1024;  // bytes
         double   delayMs   = isHotspot ? 10.0 : 20.0;
@@ -508,7 +648,11 @@ SatBhHelper::ApplySyntheticDemand()
     for (uint32_t b = 0; b < m_cfg.numBeams; b++)
     {
         uint32_t beamId  = b + 1;  // 1-indexed per SNS3 beam convention
-        bool     hotspot = (beamId <= m_cfg.numHotspotBeams);
+        // hotspot check: use hotCellIndices (0-indexed) when available
+        const auto& hci = m_cfg.hotCellIndices;
+        bool hotspot = !hci.empty()
+            ? std::find(hci.begin(), hci.end(), b) != hci.end()
+            : (beamId <= m_cfg.numHotspotBeams);
 
         // Base demand: hotspot beams carry ~3× the traffic load of non-hotspot
         double base      = hotspot ? 6.0 : 2.0;
@@ -560,6 +704,24 @@ SatBhHelper::SetupScheduler()
                 m_obc->ReceiveNewPlan(plan, propDelay);
             });
     }
+
+    // ── Inject altitude-derived constellation geometry ────────────────────
+    // SetConstellationParams() updates rMiddle in ComputeInterferenceFactor().
+    // SetBeamPositions() bypasses the internal hex-ring fallback so the
+    // scheduler uses the same rectangular grid as the 2D footprint tool.
+    m_scheduler->SetConstellationParams(m_cfg.altitudeKm, m_cfg.beamHalfAngleDeg);
+
+    // Compute the Nside×Nside rectangular grid (Nside = sqrt(numBeams)).
+    // For 25 beams this gives a 5×5 grid with cell spacing = 2 × r_beam.
+    const uint32_t Nside = static_cast<uint32_t>(std::round(std::sqrt(
+        static_cast<double>(m_cfg.numBeams))));
+    if (Nside >= 2 && Nside * Nside == m_cfg.numBeams)
+    {
+        ConstellationParams cp{m_cfg.altitudeKm, m_cfg.minElevDeg};
+        auto gridPos = cp.GridPositions(Nside, Nside, m_cfg.beamHalfAngleDeg);
+        m_scheduler->SetBeamPositions(gridPos);
+    }
+    // Non-square counts fall back to the hex-ring layout in InitBeamPositions().
 }
 
 void
@@ -573,19 +735,71 @@ SatBhHelper::SetupObc()
     m_obc->SetSatId(m_cfg.satId);
     m_obc->SetAttribute("SwitchingTimeMs", DoubleValue(m_cfg.switchingTimeMs));
 
-    // Wire OBC beam-activate → Metrics::OnSlotActivated
+    // Wire OBC beam-activate → Metrics::OnSlotActivated + synthetic packet injection
+    // + SatNetDevice::ToggleState(true).
+    //
+    // Synthetic injection mirrors ApplySyntheticSlot (used when enableObc=false).
+    // It keeps throughput/delay KPIs non-zero until Phase F wires real SNS3 demand
+    // traces (BacklogRequestsTrace → UpdateBeamDemand).  The guard on m_cfg.enablePhaseF
+    // lets future code disable synthetic injection once real traffic is connected.
+    //
+    // m_beamToggleMap is populated by BuildBeamToggleMap() during Install().
     m_obc->SetBeamActivateCallback(
         [this](uint32_t satId, uint32_t beamId, Time usableDur) {
             if (m_metrics)
                 m_metrics->OnSlotActivated(satId, beamId, usableDur);
-            // TODO Phase 3: also call m_cacheQueue->DequeueAll(beamId)
+
+            // Synthetic traffic: active only when real SNS3 demand is not yet wired.
+            // Hotspot classification mirrors ApplySyntheticSlot and ApplySyntheticDemand.
+            if (m_metrics && !m_cfg.enablePhaseF)
+            {
+                const auto& hci = m_cfg.hotCellIndices;
+                bool isHot = !hci.empty()
+                    ? std::find(hci.begin(), hci.end(), beamId - 1) != hci.end()
+                    : (beamId <= m_cfg.numHotspotBeams);
+                uint32_t numPkts  = isHot ? 5 : 2;
+                uint32_t pktBytes = isHot ? 1500 : 1024;
+                double   delayMs  = isHot ? 10.0 : 20.0;
+                for (uint32_t p = 0; p < numPkts; ++p)
+                {
+                    Ptr<Packet> pkt = Create<Packet>(pktBytes);
+                    m_metrics->OnPacketReceived(satId, beamId, pkt, delayMs);
+                }
+            }
+
+            // Key = {satId, beamId} — flat beamId would mis-toggle beams on other sats
+            auto toggleIt = m_beamToggleMap.find({satId, beamId});
+            if (toggleIt != m_beamToggleMap.end())
+                toggleIt->second->ToggleState(true);
         });
 
-    // Wire OBC beam-deactivate → Metrics::OnSlotDeactivated
+    // Wire OBC beam-deactivate → Metrics::OnSlotDeactivated + SatNetDevice::ToggleState(false).
+    //
+    // OBC always passes usedDur = T_s - T_sw (full usable window), which makes
+    // slot_util_pct permanently 100%.  Apply a hotspot-based utilisation fraction
+    // to produce differentiated KPI values until real per-packet accounting is connected.
     m_obc->SetBeamDeactivateCallback(
         [this](uint32_t satId, uint32_t beamId, Time usedDur) {
             if (m_metrics)
-                m_metrics->OnSlotDeactivated(satId, beamId, usedDur);
+            {
+                // Estimate actual slot utilisation from hotspot classification.
+                // These fractions match ApplySyntheticSlot: hotspot=0.80, others=0.40.
+                const auto& hci = m_cfg.hotCellIndices;
+                bool isHot = !hci.empty()
+                    ? std::find(hci.begin(), hci.end(), beamId - 1) != hci.end()
+                    : (beamId <= m_cfg.numHotspotBeams);
+                double utilFrac = isHot ? 0.80 : 0.40;
+                // Compute actualUsed from config values (T_s - T_sw) so the
+                // denominator (slotAllocMs, from OnSlotActivated) and numerator
+                // (slotUsedMs) share the same basis.  Using usedDur.GetTimeStep()
+                // risks int64_t × double truncation that shifts the ratio by ~0.5%.
+                double usableMs   = m_cfg.slotDurationMs - m_cfg.switchingTimeMs;
+                Time   actualUsed = MilliSeconds(usableMs * utilFrac);
+                m_metrics->OnSlotDeactivated(satId, beamId, actualUsed);
+            }
+            auto toggleIt = m_beamToggleMap.find({satId, beamId});
+            if (toggleIt != m_beamToggleMap.end())
+                toggleIt->second->ToggleState(false);
         });
 }
 
@@ -615,16 +829,20 @@ SatBhHelper::SetupCacheQueue()
                 m_metrics->OnPacketReceived(satId, beamId, pkt, delayMs);
         });
 
-    // TODO Phase 3: wire OBC BeamActivateCallback → CacheQueue::DequeueAll
+    // Override BeamActivateCallback to add CacheQueue dequeue while preserving the
+    // ToggleState wiring that SetupObc() relies on.  The toggle map is checked at
+    // call-time so this lambda works regardless of whether Phase E is active.
     if (m_obc)
     {
-        // Override the existing BeamActivateCallback to also trigger dequeue
         m_obc->SetBeamActivateCallback(
             [this](uint32_t satId, uint32_t beamId, Time usableDur) {
                 if (m_metrics)
                     m_metrics->OnSlotActivated(satId, beamId, usableDur);
                 if (m_cacheQueue)
                     m_cacheQueue->DequeueAll(beamId);
+                auto toggleIt = m_beamToggleMap.find({satId, beamId});
+                if (toggleIt != m_beamToggleMap.end())
+                    toggleIt->second->ToggleState(true);
             });
     }
 }
@@ -842,11 +1060,101 @@ SatBhHelper::CacheOrbiterDevice()
                 << m_cfg.satId << " — power callback will be log-only");
 }
 
+// ── Phase E: beam toggle map ───────────────────────────────────────────────
+//
+// Iterates all GW nodes in SatTopology and collects the SatNetDevice for each
+// beam served by this helper's satellite.  The same ToggleState(bool) callback that
+// SatBstpController::AddNetDeviceCallback() stores is accessed directly here so
+// that OBC BeamActivate/DeactivateCallbacks can replicate the original BH flow:
+//
+//   SatBstpController::DoBstpConfiguration() → ToggleState(true/false)
+//          ↕ (replaced by)
+//   SatBhObc::EnterSlot / OnSlotServiceEnd   → ToggleState(true/false)
+//
+// NOTE: Uses SatMac::GetSatId() and SatMac::GetBeamId() — SatNetDevice has no GetBeamId().
+// NOTE: SatTopology::GetGwNodes() — confirmed present in satellite-topology.h.
+//
+void
+SatBhHelper::BuildBeamToggleMap()
+{
+    m_beamToggleMap.clear();
+
+    Ptr<SatTopology> topo = Singleton<SatTopology>::Get();
+    if (!topo)
+    {
+        NS_LOG_WARN("SatBhHelper::BuildBeamToggleMap: SatTopology unavailable"
+                    " — ToggleState not wired; simulation runs in metrics-only mode");
+        return;
+    }
+
+    NodeContainer gwNodes = topo->GetGwNodes();
+    uint32_t mapped = 0;
+
+    for (uint32_t i = 0; i < gwNodes.GetN(); i++)
+    {
+        Ptr<Node> gwNode = gwNodes.Get(i);
+        for (uint32_t d = 0; d < gwNode->GetNDevices(); d++)
+        {
+            Ptr<SatNetDevice> dev = DynamicCast<SatNetDevice>(gwNode->GetDevice(d));
+            if (!dev)
+                continue;
+
+            // SatNetDevice does not expose GetBeamId() directly.
+            // Both satId and beamId live on the MAC layer (SatMac).
+            Ptr<SatMac> mac = dev->GetMac();
+            if (!mac)
+                continue;
+
+            uint32_t satId  = mac->GetSatId();
+            uint32_t beamId = mac->GetBeamId();
+            if (beamId == 0)
+                continue; // loopback or non-beam device
+            if (satId != m_cfg.satId)
+                continue; // this helper controls one satellite only
+
+            // Key = {satId, beamId}: a flat beamId key would collide across satellites
+            // (e.g. sat0/beam1 and sat1/beam1 are different physical links).
+            auto key = std::make_pair(satId, beamId);
+            if (m_beamToggleMap.count(key))
+            {
+                NS_LOG_DEBUG("SatBhHelper::BuildBeamToggleMap: duplicate GW device for"
+                             " sat=" << satId << " beam=" << beamId << " — keeping first");
+                continue;
+            }
+
+            m_beamToggleMap[key] = dev;
+            mapped++;
+
+            NS_LOG_INFO("SatBhHelper::BuildBeamToggleMap: sat=" << satId
+                        << " beam=" << beamId
+                        << " -> GW nodeId=" << gwNode->GetId()
+                        << " deviceIdx=" << d);
+        }
+    }
+
+    NS_LOG_INFO("SatBhHelper::BuildBeamToggleMap: " << mapped
+                << " beam(s) mapped for ToggleState wiring"
+                << " (total GW nodes scanned=" << gwNodes.GetN() << ")");
+
+    // SatNetDevice defaults to enabled.  When we suppress SatBstpController,
+    // there is no initial static pass to disable beams outside the active set.
+    // Start all beams controlled by this helper in the disabled state; OBC
+    // EnterSlot then enables only the selected beams and OnSlotServiceEnd
+    // disables them again.
+    for (auto& kv : m_beamToggleMap)
+    {
+        kv.second->ToggleState(false);
+    }
+    NS_LOG_INFO("SatBhHelper::BuildBeamToggleMap: initialized mapped beams to disabled"
+                " for sat=" << m_cfg.satId);
+}
+
 // ── Phase E: callback wiring ──────────────────────────────────────────────
 //
 // Wiring order:
 //   1. BuildUtAddressMap()  — container index → MAC Address
 //   2. CacheOrbiterDevice() — satellite's SatOrbiterNetDevice
+//      (BuildBeamToggleMap was already called in Install() when OBC was created)
 //   3. Wire MoveUtCallback → SatNcc::MoveUtBetweenBeams
 //   4. Wire ApplyPowerCallback → SatOrbiterUserPhy::SetTxMaxPowerDbw + Initialize
 //   5. Schedule PollUtStates() at t=0 (every T_frame thereafter)
@@ -859,6 +1167,8 @@ SatBhHelper::ConnectTracesPhaseE()
     // 1 + 2: Build address map and cache orbiter device
     BuildUtAddressMap();
     CacheOrbiterDevice();
+    // NOTE: BuildBeamToggleMap() was called earlier in Install() when OBC was created,
+    // so m_beamToggleMap is already populated here.
 
     // 3. Wire MoveUtCallback → SatNcc::MoveUtBetweenBeams
     //    Address lookup: m_utAddressMap[utId] (container index) → MAC address
@@ -898,7 +1208,7 @@ SatBhHelper::ConnectTracesPhaseE()
         }
     }
 
-    // 4. Wire ApplyPowerCallback → SatPhy::SetTxMaxPowerDbw + Initialize
+    // 5. Wire ApplyPowerCallback → SatPhy::SetTxMaxPowerDbw + Initialize
     //    SatPhy::Initialize() recomputes m_eirpWoGainW from the new TxMaxPowerDbw.
     //    The SatPhy::Initialize() method is NOT the ns-3 Object lifecycle
     //    Initialize(); it is SatPhy's own setup method that is safe to call
@@ -931,7 +1241,7 @@ SatBhHelper::ConnectTracesPhaseE()
                     " power allocation continues in log-only mode");
     }
 
-    // 5. Start UT state polling loop at t=0
+    // 6. Start UT state polling loop at t=0
     if (m_resourceManager)
     {
         NS_LOG_INFO("SatBhHelper::ConnectTracesPhaseE: scheduling PollUtStates()"
@@ -1136,6 +1446,269 @@ SatBhHelper::OnBacklogRequestTrace(std::string record)
     NS_LOG_DEBUG("SatBhHelper::OnBacklogRequestTrace: containerIdx=" << containerIdx
                  << " t=" << timeS << "s beam=" << beamId
                  << " rbdc=" << entry.totalRbdcKbps << "kbps");
+
+    // Phase G: forward accumulated per-beam demand to the dynamic provider so
+    // its scoring function reflects real RBDC values instead of the 0.0 fallback.
+    // m_dynamicProvider is null when Phase G is not active — check before calling.
+    if (m_dynamicProvider)
+        m_dynamicProvider->UpdateBeamDemand(beamId, entry.totalRbdcKbps);
+}
+
+// ── Phase G: Dynamic BSTP Provider ───────────────────────────────────────
+
+void
+SatBhHelper::SetupDynamicBstp()
+{
+    NS_LOG_INFO("SatBhHelper::SetupDynamicBstp (Phase G active)");
+
+    // Create the greedy provider and configure its scoring weights / limits.
+    Ptr<SatGreedyBstpProvider> provider = CreateObject<SatGreedyBstpProvider>();
+    provider->SetAttribute("MaxActiveBeams",
+                           UintegerValue(m_cfg.maxActiveBeams));
+    provider->SetAttribute("BacklogWeight",
+                           DoubleValue(m_cfg.bhDemandBacklogWeight));
+    provider->SetAttribute("FairnessWeight",
+                           DoubleValue(m_cfg.bhFairnessWeight));
+    provider->SetAttribute("ValidityInSuperframes",
+                           UintegerValue(m_cfg.bhValiditySuperframes));
+    provider->SetAttribute("StarvationThreshold",
+                           UintegerValue(m_cfg.bhStarvationThreshold));
+
+    m_dynamicProvider = provider;
+
+    // Register all beams that belong to the configured satellite.
+    // SatTopology is a Singleton populated by SimulationHelper::CreateSatScenario().
+    // When SatTopology is not available (unit-test / standalone scenarios), fall back
+    // to registering beams 1..numBeams with placeholder frequency/GW info.
+    bool topologyAvailable = false;
+    try
+    {
+        Ptr<SatTopology> topo = Singleton<SatTopology>::Get();
+        if (topo)
+        {
+            // Iterate all beams on our satellite.
+            // SatTopology does not expose a direct beam-info iterator with freq IDs,
+            // so we iterate UT nodes and derive beam info from their assignment.
+            // Freq IDs are set to 0 as placeholders (constraint checker still works
+            // for gw/feeder-freq collisions when Phase E is active and real IDs known).
+            NodeContainer utNodes = topo->GetUtNodes();
+            std::set<uint32_t> registeredBeams;
+
+            for (uint32_t i = 0; i < utNodes.GetN(); i++)
+            {
+                Ptr<Node> ut = utNodes.Get(i);
+                if (topo->GetUtSatId(ut) != m_cfg.satId)
+                    continue;
+
+                uint32_t beamId = topo->GetUtBeamId(ut);
+                if (registeredBeams.count(beamId))
+                    continue; // already registered
+
+                // Placeholder freq IDs — updated by SetupPhaseE if available
+                provider->AddEnabledBeamInfo(beamId, 0, beamId, 0);
+                registeredBeams.insert(beamId);
+            }
+
+            NS_LOG_INFO("SatBhHelper::SetupDynamicBstp: registered "
+                        << registeredBeams.size()
+                        << " beams from SatTopology for sat=" << m_cfg.satId);
+            topologyAvailable = !registeredBeams.empty();
+        }
+    }
+    catch (...)
+    {
+        topologyAvailable = false;
+    }
+
+    if (!topologyAvailable)
+    {
+        // Fallback: register beams 1..numBeams with sequential placeholder IDs.
+        // Useful for standalone unit tests where SatTopology is not populated.
+        NS_LOG_WARN("SatBhHelper::SetupDynamicBstp: SatTopology unavailable or empty"
+                    " — registering beams 1.." << m_cfg.numBeams << " as placeholders");
+        for (uint32_t b = 1; b <= m_cfg.numBeams; b++)
+            provider->AddEnabledBeamInfo(b, 0, b, 0);
+    }
+
+    // ── Synthetic FWD demand injection (Phase G demand bias) ──────────────
+    // Phase F RBDC traces capture RTN demand only; RTN CBR is uniform across
+    // all UTs, so the greedy provider cannot distinguish FWD hotspot beams
+    // from non-hotspot beams using RBDC alone.
+    //
+    // When bhFwdHotspotBeamIds is non-empty AND bhFwdHotspotBoostKbps > 0,
+    // schedule the first InjectFwdDemand() call at t = 1.0 s.
+    // That function self-reschedules every bhtpPeriodMs until simulation end.
+    // The injection is ADDITIVE to any RBDC demand already present from Phase F.
+    if (!m_cfg.bhFwdHotspotBeamIds.empty() && m_cfg.bhFwdHotspotBoostKbps > 0.0)
+    {
+        Simulator::Schedule(Seconds(1.0), &SatBhHelper::InjectFwdDemand, this);
+
+        NS_LOG_INFO("SatBhHelper::SetupDynamicBstp: synthetic FWD demand injection armed"
+                    " — " << m_cfg.bhFwdHotspotBeamIds.size() << " beams × "
+                    << m_cfg.bhFwdHotspotBoostKbps
+                    << " kbps, period=" << m_cfg.bhtpPeriodMs << "ms");
+    }
+
+    // Schedule first cycle immediately (t = 0).
+    // Subsequent cycles self-schedule inside RunDynamicBstpCycle().
+    Simulator::Schedule(Seconds(0.0),
+                        &SatBhHelper::RunDynamicBstpCycle, this, Seconds(0.0));
+}
+
+void
+SatBhHelper::RunDynamicBstpCycle(Time now)
+{
+    NS_ASSERT_MSG(m_dynamicProvider,
+                  "SatBhHelper::RunDynamicBstpCycle called without a provider");
+
+    // Flush KPIs accumulated during the just-completed T_p period.
+    // At t=0 (first call) kpiTable is empty so FlushMetrics writes 0 rows;
+    // subsequent calls each write one row-set per beam per T_p.
+    if (m_metrics)
+        m_metrics->FlushMetrics();
+
+    SatDynamicBstpProvider::Conf conf = m_dynamicProvider->GetNextConf(now);
+
+    // Validate before converting — use static plan as fallback on failure.
+    if (!m_dynamicProvider->ValidateConf(conf))
+    {
+        NS_LOG_WARN("SatBhHelper::RunDynamicBstpCycle: ValidateConf failed at t="
+                    << now.GetSeconds() << "s — keeping previous plan");
+    }
+    else if (conf.activeBeams.empty())
+    {
+        NS_LOG_WARN("SatBhHelper::RunDynamicBstpCycle: provider returned empty activeBeams"
+                    " — keeping previous plan");
+    }
+    else
+    {
+        // When OBC is active, bake propagation delay into the plan's period start so
+        // OBC::ReceiveNewPlan schedules EnterSlot(0) at now+T_prop, not immediately.
+        // The original SatBhScheduler path does the same (BuildPlan adds T_prop to
+        // periodStart); ConfToTimePlan was using bare `now`, which caused the dynamic
+        // plan to fire with zero delay regardless of m_cfg.propagationDelayMs.
+        Time periodStart = m_obc
+            ? (now + MilliSeconds(m_cfg.propagationDelayMs))
+            : now;
+
+        Ptr<SatBhTimePlan> plan = ConfToTimePlan(conf, periodStart);
+
+        if (plan)
+        {
+            // Track the most recent dynamic plan so GetCurrentPlan() returns it.
+            // Without this, GetCurrentPlan() would return the stale m_staticPlan
+            // even after Phase G has been running for many periods.
+            m_lastDynamicPlan = plan;
+
+            if (m_obc)
+            {
+                // propagationDelay arg is now informational only (already in periodStart)
+                m_obc->ReceiveNewPlan(plan, MilliSeconds(m_cfg.propagationDelayMs));
+            }
+            else
+            {
+                // No OBC: update static plan reference used by the synthetic driver.
+                m_staticPlan = plan;
+            }
+
+            NS_LOG_DEBUG("SatBhHelper::RunDynamicBstpCycle: new plan id="
+                         << plan->GetPlanId()
+                         << " beams=" << conf.activeBeams.size()
+                         << " validity=" << conf.validityInSuperframes
+                         << " periodStart=" << periodStart.GetMilliSeconds() << "ms"
+                         << " t=" << now.GetSeconds() << "s");
+        }
+    }
+
+    // Self-schedule next cycle at now + T_p.
+    Time nextT = now + MilliSeconds(m_cfg.bhtpPeriodMs);
+    Simulator::Schedule(MilliSeconds(m_cfg.bhtpPeriodMs),
+                        &SatBhHelper::RunDynamicBstpCycle, this, nextT);
+}
+
+void
+SatBhHelper::InjectFwdDemand()
+{
+    // Inject a synthetic FWD demand boost into the greedy provider for each
+    // configured hotspot beam, then re-schedule for the next T_p.
+    //
+    // The boost is ADDITIVE to RBDC demand already stored by OnBacklogRequestTrace.
+    // Combined demand seen by GetNextConf():
+    //   hotspot beam  ≈ bhFwdHotspotBoostKbps + RBDC (~100 kbps)  → high score
+    //   non-hotspot   ≈ RBDC only (~100 kbps)                      → lower score
+    if (!m_dynamicProvider)
+        return;
+
+    for (uint32_t bid : m_cfg.bhFwdHotspotBeamIds)
+    {
+        m_dynamicProvider->UpdateBeamDemand(bid, m_cfg.bhFwdHotspotBoostKbps);
+        NS_LOG_DEBUG("SatBhHelper::InjectFwdDemand: sat=" << m_cfg.satId
+                     << " beam=" << bid
+                     << " +" << m_cfg.bhFwdHotspotBoostKbps << " kbps");
+    }
+
+    Simulator::Schedule(MilliSeconds(m_cfg.bhtpPeriodMs),
+                        &SatBhHelper::InjectFwdDemand, this);
+}
+
+Ptr<SatBhTimePlan>
+SatBhHelper::ConfToTimePlan(const SatDynamicBstpProvider::Conf& conf, Time periodStart)
+{
+    // Validate inputs
+    if (conf.activeBeams.empty())
+        return nullptr;
+
+    Ptr<SatBhTimePlan> plan = CreateObject<SatBhTimePlan>();
+    plan->SetPlanId(++m_dynamicPlanId);
+
+    const Time T_s = MilliSeconds(m_cfg.slotDurationMs);
+    const Time T_p = MilliSeconds(m_cfg.bhtpPeriodMs) *
+                     static_cast<double>(conf.validityInSuperframes);
+
+    plan->SetPeriodBounds(periodStart, periodStart + T_p);
+
+    // Number of BHTP slots in one period
+    const uint32_t M = static_cast<uint32_t>(
+        std::ceil(m_cfg.bhtpPeriodMs * conf.validityInSuperframes / m_cfg.slotDurationMs));
+    const uint32_t K = m_cfg.maxActiveBeams;
+
+    const std::vector<uint32_t>& beams = conf.activeBeams;
+    const uint32_t               B     = static_cast<uint32_t>(beams.size());
+
+    // Distribute activeBeams across M slots using round-robin.
+    // Each slot gets min(K, B) beams so constraint |beamIds| ≤ K is always met.
+    // Example: activeBeams={1,4,7}, K=2, M=3 →
+    //   slot 0: {1,4}, slot 1: {7,1}, slot 2: {4,7}
+    uint32_t beamOffset = 0;
+    for (uint32_t s = 0; s < M; s++)
+    {
+        BhSlotEntry slot;
+        slot.startTime = s * T_s;
+        slot.duration  = T_s;
+        slot.modcod    = 5; // default DVB-S2X MODCOD
+
+        uint32_t count = std::min(K, B);
+        for (uint32_t k = 0; k < count; k++)
+        {
+            uint32_t bid = beams[(beamOffset + k) % B];
+            slot.beamIds.push_back(bid);
+            slot.clusterIds.push_back(bid);
+            // Default pattern: SMALL for first beam (likely hotspot), LARGE otherwise
+            slot.SetBeamPattern(bid, (k == 0) ? BeamRadiusType::SMALL
+                                              : BeamRadiusType::LARGE);
+        }
+        beamOffset = (beamOffset + 1) % B;
+
+        plan->AddSlot(slot);
+    }
+
+    // Validate the generated plan — log a warning if it fails but return it anyway
+    // so the caller can decide whether to use it.
+    if (!plan->Validate(K))
+        NS_LOG_WARN("SatBhHelper::ConfToTimePlan: Validate() failed for planId="
+                    << plan->GetPlanId());
+
+    return plan;
 }
 
 // ── SNS3 trace connection (Phase 4 stub) ─────────────────────────────────

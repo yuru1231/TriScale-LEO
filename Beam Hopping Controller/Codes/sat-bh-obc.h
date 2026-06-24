@@ -22,9 +22,9 @@
  *   WAIT_PLAN → ACTIVE     : new BHTP received while waiting
  *
  * Timing constraints (spec Section 5.1):
- *   T_s  = 26.5 ms   slot service window
+ *   T_s  = 10.0 ms   slot service window (project fixed)
  *   T_sw = 2 ms      dead-time during beam switching (no data)
- *   Usable window = T_s − T_sw = 24.5 ms
+ *   Usable window = T_s − T_sw = 8.0 ms
  *
  * Callbacks emitted (connected by SatBhHelper to Metrics + CacheQueue):
  *   BeamActivateCallback  (satId, beamId, usableDuration)  ← slot start

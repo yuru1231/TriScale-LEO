@@ -32,7 +32,7 @@ SatResourceManager::GetTypeId()
             .AddConstructor<SatResourceManager>()
             .AddAttribute("FrameDuration",
                           "T_frame: self-scheduling loop period in milliseconds",
-                          DoubleValue(503.0),
+                          DoubleValue(80.0),  // T_p project fixed: 8 × 10 ms
                           MakeDoubleAccessor(&SatResourceManager::SetFrameDurationMs,
                                              &SatResourceManager::GetFrameDurationMs),
                           MakeDoubleChecker<double>(1.0, 10000.0))
@@ -65,7 +65,7 @@ SatResourceManager::GetTypeId()
 }
 
 SatResourceManager::SatResourceManager()
-    : m_frameDuration(MilliSeconds(503.0)),
+    : m_frameDuration(MilliSeconds(80.0)),  // T_p project fixed: 8 × 10 ms
       m_enableUserAssoc(true),
       m_enablePatternSel(false),
       m_enablePowerAlloc(false),
@@ -329,7 +329,7 @@ SatResourceManager::ComputeBeamCapacityMap(const std::vector<uint32_t>& beamIds)
 
     // Capacity hint = (dwellMs / T_slot) × nominalKbpsPerSlot
     // Without BHTP: assume equal dwell across all beams (M × T_s / numBeams).
-    const double T_slot_ms = 26.5;
+    const double T_slot_ms = 10.0; // project fixed T_s
 
     Ptr<SatBhTimePlan> plan;
     if (m_scheduler)
@@ -338,7 +338,7 @@ SatResourceManager::ComputeBeamCapacityMap(const std::vector<uint32_t>& beamIds)
     for (uint32_t bid : beamIds)
     {
         double dwellMs = plan ? plan->GetBeamDwellMs(bid)
-                               : (503.0 / static_cast<double>(beamIds.size()));
+                               : (80.0 / static_cast<double>(beamIds.size())); // T_p = 80 ms project
         double numSlots    = dwellMs / T_slot_ms;
         capacityMap[bid]   = numSlots * m_nominalKbpsPerSlot;
         NS_LOG_DEBUG("SatResourceManager::ComputeBeamCapacityMap beam=" << bid

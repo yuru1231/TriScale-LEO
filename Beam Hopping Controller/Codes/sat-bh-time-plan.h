@@ -9,8 +9,8 @@
  * Layer2.md Section 5 (Time Model & BHTP Structure).
  *
  * Key time constants (spec Section 5.1):
- *   T_s   = 26.5 ms   BH time slot duration (= DVB-S2X super-frame)
- *   T_p   = 503 ms    BHTP period  (M slots × T_s)
+ *   T_s   = 10.0 ms   BH time slot duration (project fixed; spec nominal 26.5 ms removed)
+ *   T_p   = 80.0 ms   BHTP period  (M=8 slots × T_s, project fixed)
  *   T_sw  = 2 ms      beam switching dead-time (embedded in slot boundary)
  *   T_prop= 10 ms     command propagation delay (NCC → satellite OBC)
  *   K     = 2 ~ 4     max simultaneously active beams per slot (default 3)
@@ -47,6 +47,11 @@ namespace ns3
 // Each value maps to a 3dB beamwidth and corresponding antenna gain,
 // fed into the SNS3 antenna model non-invasively via attribute configuration.
 //
+// The stored value is the HALF-angle (not the full 3-dB beamwidth).
+// Ground radius r = altitude × tan(halfAngle).
+// @ Starlink Shell-1 (550 km): MIDDLE (2.0°) → r ≈ 19.2 km.
+// Use ConstellationParams::BeamRadiusKm(halfAngleDeg) for the exact value.
+//
 // Index mapping matches SatBeamPatternSelector output (patternIndex 0~4):
 //   XSMALL  → patternIndex 0
 //   SMALL   → patternIndex 1
@@ -56,11 +61,11 @@ namespace ns3
 //
 enum class BeamRadiusType : uint8_t
 {
-    XSMALL = 0, ///< 1.0° beamwidth, ~10 km radius, 43.89 dBi — hotspot core
-    SMALL  = 1, ///< 1.5° beamwidth, ~15 km radius, 41.39 dBi — high demand
-    MIDDLE = 2, ///< 2.0° beamwidth, ~20 km radius, 37.89 dBi — default
-    LARGE  = 3, ///< 2.5° beamwidth, ~25 km radius, 35.01 dBi — low demand
-    XLARGE = 4, ///< 3.0° beamwidth, ~30 km radius, 31.89 dBi — edge / cold-spot
+    XSMALL = 0, ///< 1.0° half-angle, ~9.6 km @ 550 km, 43.89 dBi — hotspot core
+    SMALL  = 1, ///< 1.5° half-angle, ~14.4 km @ 550 km, 41.39 dBi — high demand
+    MIDDLE = 2, ///< 2.0° half-angle, ~19.2 km @ 550 km, 37.89 dBi — default
+    LARGE  = 3, ///< 2.5° half-angle, ~24.0 km @ 550 km, 35.01 dBi — low demand
+    XLARGE = 4, ///< 3.0° half-angle, ~28.8 km @ 550 km, 31.89 dBi — edge / cold-spot
 };
 
 /// Convert BeamRadiusType to human-readable string (for logging / CSV)
@@ -92,7 +97,7 @@ struct BhSlotEntry
 {
     std::vector<uint32_t> beamIds;    ///< Simultaneously active beams (|beamIds| ≤ K)
     Time                  startTime;  ///< Offset from period start (e.g. slot 0 → 0 ms)
-    Time                  duration;   ///< Slot service window (T_s = 26.5 ms by default)
+    Time                  duration;   ///< Slot service window (T_s = 10.0 ms, project fixed)
     ModcodIndex           modcod;     ///< DVB-S2X MODCOD index for this slot
     std::vector<uint32_t> clusterIds; ///< Interference cluster ID per beam (one-to-one with beamIds)
 
@@ -110,7 +115,7 @@ struct BhSlotEntry
     /// Empty until SatPowerAllocator populates it each frame.
     std::map<uint32_t, double> allocatedPowerDbw;
 
-    /// Default constructor — sets T_s = 26.5 ms, MODCOD = 0
+    /// Default constructor — sets T_s = 10.0 ms, MODCOD = 0
     BhSlotEntry();
 
     /// Convenience constructor for single-beam slot (common in Phase 2 testing)

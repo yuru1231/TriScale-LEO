@@ -40,7 +40,7 @@ BeamRadiusTypeToString(BeamRadiusType r)
 
 BhSlotEntry::BhSlotEntry()
     : startTime(Seconds(0.0)),
-      duration(MilliSeconds(26.5)),   // T_s default per spec Section 5.1
+      duration(MilliSeconds(10.0)),   // T_s project fixed value (10 ms/slot)
       modcod(0)
 {
 }
@@ -139,7 +139,7 @@ SatBhTimePlan::SatBhTimePlan()
     : m_planId(0),
       m_n(0),
       m_periodStart(Seconds(0.0)),
-      m_periodEnd(MilliSeconds(503.0))  // T_p default per spec Section 5.1
+      m_periodEnd(MilliSeconds(80.0))   // T_p project fixed: 8 slots × 10 ms
 {
 }
 
@@ -338,7 +338,7 @@ SatBhTimePlan::PrettyPrint(std::ostream& os) const
                              << m_periodStart.GetSeconds() << " s\n"
        << "  periodEnd   : " << m_periodEnd.GetSeconds()   << " s\n"
        << "  duration    : " << GetPeriodDuration().GetMilliSeconds() << " ms"
-                             << "  (T_p = 503 ms nominal)\n"
+                             << "  (T_p = 80 ms project fixed)\n"
        << "  numSlots    : " << m_slots.size() << "\n"
        << "  slots:\n";
 

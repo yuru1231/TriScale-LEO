@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iomanip>
 
 namespace ns3
@@ -96,8 +97,8 @@ SatBhMetrics::GetTypeId()
             .SetParent<Object>()
             .AddConstructor<SatBhMetrics>()
             .AddAttribute("ReportIntervalMs",
-                          "KPI flush interval in milliseconds (default = T_p = 503 ms)",
-                          DoubleValue(503.0),
+                          "KPI flush interval in milliseconds (T_p project fixed = 80 ms)",
+                          DoubleValue(80.0),
                           MakeDoubleAccessor(&SatBhMetrics::SetReportIntervalMs,
                                              &SatBhMetrics::GetReportIntervalMs),
                           MakeDoubleChecker<double>(1.0, 60000.0))
@@ -121,9 +122,11 @@ SatBhMetrics::GetTypeId()
 
 SatBhMetrics::SatBhMetrics()
     : m_headerWritten(false),
-      m_reportInterval(MilliSeconds(503.0)), // T_p
+      m_reportInterval(MilliSeconds(80.0)),  // T_p project fixed: 8 × 10 ms
       m_warmUpTime(Seconds(10.0)),           // spec Section 9
       m_windowStart(Seconds(0.0)),
+      m_nextFlushTime(Seconds(10.0) + MilliSeconds(80.0)),  // warmUpTime + T_p
+      m_lastEventTime(Seconds(0.0)),
       m_outputPath("bh-metrics.csv")
 {
 }
@@ -157,6 +160,7 @@ SatBhMetrics::SetReportInterval(Time interval)
     NS_ASSERT_MSG(interval.IsPositive(),
                   "SatBhMetrics::SetReportInterval: interval must be > 0");
     m_reportInterval = interval;
+    m_nextFlushTime  = m_warmUpTime + m_reportInterval;  // recompute gate
 }
 
 Time
@@ -168,7 +172,8 @@ SatBhMetrics::GetReportInterval() const
 void
 SatBhMetrics::SetWarmUpTime(Time warmUp)
 {
-    m_warmUpTime = warmUp;
+    m_warmUpTime    = warmUp;
+    m_nextFlushTime = m_warmUpTime + m_reportInterval;  // recompute gate
 }
 
 Time
@@ -257,6 +262,8 @@ SatBhMetrics::OnSlotActivated(uint32_t satId, uint32_t beamId, Time duration)
         return;
     }
 
+    m_lastEventTime = Simulator::Now();
+
     BhBeamKpi& kpi = GetOrCreate(satId, beamId);
     kpi.slotAllocMs += duration.GetMilliSeconds();
     kpi.dwellMs += duration.GetMilliSeconds();
@@ -289,6 +296,23 @@ SatBhMetrics::OnSlotDeactivated(uint32_t satId, uint32_t beamId, Time usedDurati
 void
 SatBhMetrics::FlushMetrics()
 {
+    // Skip CSV output during warm-up; keep m_windowStart current so the first
+    // post-warmup window is measured from warmup-end, not from t=0.
+    if (Simulator::Now() < m_warmUpTime)
+    {
+        m_windowStart = Simulator::Now();
+        return;
+    }
+
+    // Rate-limit: allow at most one write per T_p window.
+    // This guards against the flush being called at T_s (slot) frequency by
+    // the timer chain, OBC slot callbacks, or other sub-T_p callers.
+    // m_nextFlushTime advances by T_p after each write.
+    if (Simulator::Now() < m_nextFlushTime)
+    {
+        return;
+    }
+
     EnsureFileOpen();
 
     const double nowSec = Simulator::Now().GetSeconds();
@@ -299,6 +323,16 @@ SatBhMetrics::FlushMetrics()
     {
         const BeamKey& key = entry.first;
         BhBeamKpi& kpi = entry.second;
+
+        // Skip beams with no activity in this T_p window.
+        // kpiTable entries persist across flushes (only Reset(), never erased),
+        // so entries from beams first seen in earlier periods remain in the map
+        // but carry zero data after Reset(). Writing them would inflate row counts
+        // and corrupt per-beam KPI averages.
+        if (kpi.slotAllocMs <= 0.0 && kpi.pktCount == 0 && kpi.droppedPkts == 0)
+        {
+            continue;
+        }
 
         m_csvFile << std::fixed << std::setprecision(6)
                   << nowSec << ","
@@ -327,7 +361,9 @@ SatBhMetrics::FlushMetrics()
     }
 
     m_csvFile.flush();
-    m_windowStart = Simulator::Now();
+    m_csvFile.close();
+    m_windowStart   = Simulator::Now();
+    m_nextFlushTime = Simulator::Now() + m_reportInterval;  // advance gate by T_p
 }
 
 double
@@ -359,10 +395,32 @@ SatBhMetrics::ComputeJainFairnessIndex() const
 void
 SatBhMetrics::FinalFlush()
 {
-    if (!m_kpiTable.empty())
+    if (m_kpiTable.empty())
+        return;
+
+    // Skip if no new data since the last flush.
+    bool hasData = false;
+    for (const auto& entry : m_kpiTable)
     {
-        FlushMetrics();
+        if (entry.second.pktCount > 0 || entry.second.slotAllocMs > 0.0)
+        {
+            hasData = true;
+            break;
+        }
     }
+    if (!hasData)
+        return;
+
+    // Guard: Simulator::Destroy() resets the clock to 0 before object destructors run.
+    // If Now() == 0 but m_lastEventTime > 0, this is a post-destroy call — suppress it
+    // to prevent writing a row with time_s=0 and a negative windowSec that corrupts KPIs.
+    // Regular RunDynamicBstpCycle / FlushAndReschedule already flushed the last T_p.
+    if (Simulator::Now() == Seconds(0.0) && m_lastEventTime > Seconds(0.0))
+        return;
+
+    // Bypass the rate-limit gate so the final partial period is always written.
+    m_nextFlushTime = Time(0);
+    FlushMetrics();
 }
 
 void
@@ -386,6 +444,16 @@ SatBhMetrics::EnsureFileOpen()
 {
     if (!m_csvFile.is_open())
     {
+        std::filesystem::path outputPath(m_outputPath);
+        if (outputPath.has_parent_path())
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(outputPath.parent_path(), ec);
+            NS_ASSERT_MSG(!ec,
+                          "SatBhMetrics: cannot create output directory for "
+                              << m_outputPath << ": " << ec.message());
+        }
+
         // ios::app lets multiple SatBhMetrics instances (one per satellite) share
         // the same output file without clobbering each other's data.
         // Header is written once per file: only when the file is brand-new (size==0).

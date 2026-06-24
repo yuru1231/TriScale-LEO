@@ -63,14 +63,14 @@ SatBhScheduler::GetTypeId()
                           MakeUintegerAccessor(&SatBhScheduler::m_Kb),
                           MakeUintegerChecker<uint32_t>(1, 10))
             .AddAttribute("BhtpPeriodMs",
-                          "T_p: BHTP period in milliseconds",
-                          DoubleValue(503.0),
+                          "T_p: BHTP period in milliseconds (Phase 1 Starlink: 80 ms = 8 slots)",
+                          DoubleValue(80.0),
                           MakeDoubleAccessor(&SatBhScheduler::SetBhtpPeriodMs,
                                              &SatBhScheduler::GetBhtpPeriodMs),
                           MakeDoubleChecker<double>(1.0, 10000.0))
             .AddAttribute("SlotDurationMs",
-                          "T_s: BH time slot duration in milliseconds (= DVB-S2X super-frame)",
-                          DoubleValue(26.5),
+                          "T_s: BH time slot duration in milliseconds (Phase 1 Starlink: 10 ms)",
+                          DoubleValue(10.0),
                           MakeDoubleAccessor(&SatBhScheduler::SetSlotDurationMs,
                                              &SatBhScheduler::GetSlotDurationMs),
                           MakeDoubleChecker<double>(1.0, 1000.0))
@@ -121,8 +121,8 @@ SatBhScheduler::GetTypeId()
 SatBhScheduler::SatBhScheduler()
     : m_J(19),
       m_Kb(3),
-      m_bhtpPeriod(MilliSeconds(503.0)),
-      m_slotDuration(MilliSeconds(26.5)),
+      m_bhtpPeriod(MilliSeconds(80.0)),
+      m_slotDuration(MilliSeconds(10.0)),
       m_propagationDelay(MilliSeconds(10.0)),
       m_emMaxIterations(50),
       m_emConvergenceEps(0.001),
@@ -144,76 +144,133 @@ SatBhScheduler::ComputeF() const
     // F = number of BH time slots per frame (BHTP period) = round(T_p / T_s)
     // Formal model: each frame n has F slots; scheduling assigns i-th sat,
     // j-th beam, f-th slot to serve u-th user in grid a_{L,W}.
-    // For default params: round(503 / 26.5) = round(18.98) = 19
+    // Phase 1 Starlink: round(80 / 10) = 8
     return static_cast<uint32_t>(
         std::round(m_bhtpPeriod.GetMilliSeconds() / m_slotDuration.GetMilliSeconds()));
 }
 
 void
+SatBhScheduler::SetBeamPositions(const std::vector<std::pair<double, double>>& positions)
+{
+    // Store externally-derived beam positions (e.g., from ConstellationParams::GridPositions).
+    // RunSchedulingCycle() checks m_beamPositions.empty() before calling InitBeamPositions(),
+    // so setting positions here bypasses the internal hex-grid fallback.
+    m_beamPositions = positions;
+    NS_LOG_INFO("SatBhScheduler::SetBeamPositions: " << positions.size()
+                << " positions loaded from external source");
+}
+
+void
+SatBhScheduler::SetConstellationParams(double altitudeKm, double beamHalfAngleDeg)
+{
+    // Update altitude and beam angle used by ComputeInterferenceFactor().
+    // rMiddle = altitudeKm × tan(beamHalfAngleDeg × π/180)
+    m_altitudeKm       = altitudeKm;
+    m_beamHalfAngleDeg = beamHalfAngleDeg;
+    NS_LOG_INFO("SatBhScheduler::SetConstellationParams: altitude=" << altitudeKm
+                << " km  halfAngle=" << beamHalfAngleDeg << " deg"
+                << "  rMiddle=" << altitudeKm * std::tan(beamHalfAngleDeg * std::acos(-1.0) / 180.0)
+                << " km");
+}
+
+void
 SatBhScheduler::InitBeamPositions()
 {
-    // Pre-compute hex-grid ground positions (x, y) in km for numBeams beams.
-    // Hexagonal lattice with pointy-top orientation, inter-beam spacing d = 70 km.
-    // This spacing ensures adjacent MIDDLE beams (r=40 km) have moderate overlap
-    // without excessive interference (ω ≈ 0.02 for adjacent beams at 70 km).
+    // Fallback: compute beam positions internally when none were injected externally.
     //
-    // Ring 0: 1 beam (center)
-    // Ring 1: 6 beams at distance d, angles 0°, 60°, 120°, 180°, 240°, 300°
-    // Ring 2: 12 beams at distances 2d (corners) and d√3 (edges)
-    // Ring 3: 18 beams for numBeams > 19 (simple circular layout)
+    // Strategy:
+    //   • Perfect-square beam count (4, 9, 16, 25, …): use an altitude-derived
+    //     Nside × Nside rectangular grid (row 0 = South, col 0 = West).
+    //     Cell spacing = 2 × r_beam = 2 × altitudeKm × tan(beamHalfAngleDeg).
+    //     Consistent with ConstellationParams::GridPositions() and the starlink25
+    //     UT placement in sat-bh-example.cc.
+    //
+    //   • Non-square count (1, 7, 19, …): fall back to hexagonal ring layout.
+    //     Inter-beam spacing d = 2 × r_beam (same physical basis as rect grid).
 
-    const double d     = 70.0;              // inter-beam spacing in km
-    const double sqrt3 = std::sqrt(3.0);
     const double pi    = std::acos(-1.0);
+    const double r_km  = m_altitudeKm * std::tan(m_beamHalfAngleDeg * pi / 180.0);
+    const double d     = 2.0 * r_km;   // non-overlapping beam spacing [km]
 
     m_beamPositions.resize(m_J, {0.0, 0.0});
 
     if (m_J == 0)
         return;
 
-    // Ring 0: center beam (index 0 → beam 1 in SNS3)
+    // ── Rectangular grid for perfect-square beam counts ───────────────────────
+    auto isqrt = [](uint32_t n) -> uint32_t {
+        return static_cast<uint32_t>(std::round(std::sqrt(static_cast<double>(n))));
+    };
+    uint32_t Nside = isqrt(m_J);
+
+    if (Nside >= 2 && Nside * Nside == m_J)
+    {
+        // Altitude-derived Nside × Nside rectangular grid.
+        // i = row × Nside + col; row 0 = South; col 0 = West.
+        const double L = static_cast<double>(Nside) * d;  // grid square side [km]
+        for (uint32_t row = 0; row < Nside; ++row)
+        {
+            for (uint32_t col = 0; col < Nside; ++col)
+            {
+                uint32_t idx = row * Nside + col;
+                double   x   = -L / 2.0 + (col + 0.5) * d;  // East  [km]
+                double   y   = -L / 2.0 + (row + 0.5) * d;  // North [km]
+                m_beamPositions[idx] = {x, y};
+            }
+        }
+        NS_LOG_INFO("SatBhScheduler::InitBeamPositions: "
+                    << m_J << " beams on " << Nside << "×" << Nside
+                    << " rectangular grid  spacing=" << d
+                    << " km  (altitude=" << m_altitudeKm
+                    << " km  halfAngle=" << m_beamHalfAngleDeg << " deg)");
+        return;
+    }
+
+    // ── Hexagonal ring layout for non-square counts ───────────────────────────
+    const double sqrt3 = std::sqrt(3.0);
+
+    // Ring 0: center beam
     m_beamPositions[0] = {0.0, 0.0};
 
-    // Ring 1: 6 beams at angles k×60°, k=0..5 (indices 1..6 → beams 2..7)
+    // Ring 1: 6 beams at angles k×60°
     for (uint32_t k = 0; k < 6 && (k + 1) < m_J; k++)
     {
-        double angle         = k * 60.0 * pi / 180.0;
+        double angle = k * 60.0 * pi / 180.0;
         m_beamPositions[k + 1] = {d * std::cos(angle), d * std::sin(angle)};
     }
 
-    // Ring 2: 12 beams forming the second hexagonal shell (indices 7..18 → beams 8..19)
-    // Positions from hex-grid arithmetic: 6 corner beams at distance 2d,
-    // 6 edge beams at distance d√3, alternating at 60°/30° offsets
+    // Ring 2: 12 beams in CCW order
     if (m_J > 7)
     {
-        // 12 ring-2 positions in counter-clockwise order
         const double ring2[][2] = {
-            { 2.0 * d,          0.0         },
-            { 1.5 * d,          d * sqrt3 / 2.0 },
-            { d,                d * sqrt3   },
-            { 0.0,              d * sqrt3   },
-            {-d,                d * sqrt3   },
-            {-1.5 * d,          d * sqrt3 / 2.0 },
-            {-2.0 * d,          0.0         },
-            {-1.5 * d,         -d * sqrt3 / 2.0 },
-            {-d,               -d * sqrt3   },
-            { 0.0,             -d * sqrt3   },
-            { d,               -d * sqrt3   },
-            { 1.5 * d,         -d * sqrt3 / 2.0 },
+            { 2.0 * d,           0.0              },
+            { 1.5 * d,           d * sqrt3 / 2.0  },
+            { d,                 d * sqrt3        },
+            { 0.0,               d * sqrt3        },
+            {-d,                 d * sqrt3        },
+            {-1.5 * d,           d * sqrt3 / 2.0  },
+            {-2.0 * d,           0.0              },
+            {-1.5 * d,          -d * sqrt3 / 2.0  },
+            {-d,                -d * sqrt3        },
+            { 0.0,              -d * sqrt3        },
+            { d,                -d * sqrt3        },
+            { 1.5 * d,          -d * sqrt3 / 2.0  },
         };
         for (uint32_t k = 0; k < 12 && (k + 7) < m_J; k++)
             m_beamPositions[k + 7] = {ring2[k][0], ring2[k][1]};
     }
 
-    // Ring 3: simple circular layout for any remaining beams beyond 19
+    // Ring 3: circular arc for beams beyond 19
     for (uint32_t jIdx = 19; jIdx < m_J; jIdx++)
     {
-        double angle         = (jIdx - 19) * (2.0 * pi / 18.0);
+        double angle = (jIdx - 19) * (2.0 * pi / 18.0);
         m_beamPositions[jIdx] = {3.0 * d * std::cos(angle), 3.0 * d * std::sin(angle)};
     }
 
-    NS_LOG_INFO("SatBhScheduler::InitBeamPositions: " << m_J
-                << " beams positioned on hex grid (spacing=" << d << " km)");
+    NS_LOG_INFO("SatBhScheduler::InitBeamPositions: "
+                << m_J << " beams on hexagonal ring grid  spacing=" << d
+                << " km  (altitude=" << m_altitudeKm
+                << " km  halfAngle=" << m_beamHalfAngleDeg << " deg)");
 }
 
 // ── Demand input ──────────────────────────────────────────────────────────────
@@ -557,6 +614,20 @@ SatBhScheduler::ComputeVirtualTraffic()
                  << " urgency=" << urgency);
 }
 
+// ── Beam radius helper ────────────────────────────────────────────────────────
+
+double
+SatBhScheduler::BeamRadiusFromType(BeamRadiusType t) const
+{
+    // Half-angle table indexed by BeamRadiusType (XSMALL=0 … XLARGE=4).
+    // Ground radius r = altitudeKm × tan(halfAngleDeg × π/180).
+    // Values match the enum documentation in sat-bh-time-plan.h.
+    static const double kHalfAngles[5] = {1.0, 1.5, 2.0, 2.5, 3.0};
+    const double pi  = std::acos(-1.0);
+    uint8_t      idx = std::min(static_cast<uint8_t>(t), static_cast<uint8_t>(4));
+    return m_altitudeKm * std::tan(kHalfAngles[idx] * pi / 180.0);
+}
+
 // ── Interference model (spec Section 6.4) ───────────────────────────────────
 
 double
@@ -564,34 +635,54 @@ SatBhScheduler::ComputeInterferenceFactor(uint32_t beamI, uint32_t beamJ) const
 {
     // ω_{i,j} = G_i(θ_{i→j}) / G_j(0°)
     //
-    // Using Gaussian beam gain model:
+    // Gaussian beam gain model:
     //   G_i(d) = G_max_i × exp(-2.77 × (d / r_i)²)
-    //   G_j(0) = G_max_j  (peak gain toward beam j centre)
     //
-    // Simplification: assume MIDDLE beam radius (40 km) as reference for both beams.
-    // This is a conservative estimate; narrower beams would have lower ω_{i,j}.
+    // Per-beam radii r_i, r_j are looked up from m_currentBeamPatterns, which is
+    // populated by BuildPlan() Step 2 before GroupClusters() is called.
+    // This resolves the "hotspot shrink / cold-spot enlarge" conflict:
+    //   XSMALL (1°, 9.6 km) → very low sidelobe at 38.4 km  (ω ≈ 10⁻²⁴)
+    //   XLARGE (3°, 28.8 km) → non-trivial sidelobe at 38.4 km (ω ≈ 0.007)
+    // Using a single MIDDLE r for both would under-estimate XLARGE interference by 470×.
     //
-    // First-layer check: if d_ij > 1.5 × (r_i + r_j), interference is negligible.
+    // The function is asymmetric (r_i ≠ r_j in general), so we compute both
+    // directions and return the worst-case (max) value — conservative and correct.
+    //
+    // First-layer check: d_ij > 1.5 × (r_i + r_j) → negligible interference.
     // (spec Section 6.4 first-layer condition)
 
     if (beamI >= m_beamPositions.size() || beamJ >= m_beamPositions.size())
         return 0.0; // Positions not initialised; assume no interference
 
-    const double rMiddle    = 20.0; // km — MIDDLE beam 3dB radius (patternIndex=2, 2.0° beamwidth)
-    const double firstLayer = 1.5 * (rMiddle + rMiddle); // = 60 km
+    // Per-beam ground radius [km]; fall back to MIDDLE if patterns not yet assigned.
+    const bool patternsReady =
+        !m_currentBeamPatterns.empty() &&
+        beamI < m_currentBeamPatterns.size() &&
+        beamJ < m_currentBeamPatterns.size();
+
+    const double rI = patternsReady
+                        ? BeamRadiusFromType(m_currentBeamPatterns[beamI])
+                        : BeamRadiusFromType(BeamRadiusType::MIDDLE);
+    const double rJ = patternsReady
+                        ? BeamRadiusFromType(m_currentBeamPatterns[beamJ])
+                        : BeamRadiusFromType(BeamRadiusType::MIDDLE);
+
+    // First-layer spatial isolation: if far enough apart, interference negligible.
+    const double firstLayer = 1.5 * (rI + rJ);
 
     // Euclidean distance between beam centre positions in km
     double dx  = m_beamPositions[beamI].first  - m_beamPositions[beamJ].first;
     double dy  = m_beamPositions[beamI].second - m_beamPositions[beamJ].second;
     double dij = std::sqrt(dx * dx + dy * dy);
 
-    // First-layer spatial isolation check
     if (dij > firstLayer)
         return 0.0;
 
-    // Gaussian gain model: ω_{i,j} = exp(-2.77 × (d_ij / r)²)
-    // Factor 2.77 ≈ ln(2) × 4 comes from the 3dB half-power beamwidth definition.
-    double omega = std::exp(-2.77 * (dij / rMiddle) * (dij / rMiddle));
+    // Gaussian gain model in both directions; take worst case.
+    // Factor 2.77 ≈ ln(2) × 4 from the 3dB half-power beamwidth definition.
+    double omegaIJ = std::exp(-2.77 * (dij / rI) * (dij / rI)); // i illuminates j
+    double omegaJI = std::exp(-2.77 * (dij / rJ) * (dij / rJ)); // j illuminates i
+    double omega   = std::max(omegaIJ, omegaJI);
     return omega;
 }
 
@@ -706,6 +797,14 @@ SatBhScheduler::BuildPlan(Time periodStart)
         for (uint32_t idx = 0; idx < smallCount; idx++)
             beamRadius[hotspotBeams[idx]] = BeamRadiusType::SMALL;
     }
+
+    // Propagate the per-beam pattern to m_currentBeamPatterns so that
+    // ComputeInterferenceFactor() uses each beam's actual radius (not a
+    // uniform MIDDLE fallback) when GroupClusters() is called below.
+    // This fixes the "hotspot shrink / cold-spot enlarge" interference
+    // underestimation: XLARGE beams have 470× more inter-beam leakage
+    // than MIDDLE at the same 38.4 km grid spacing.
+    m_currentBeamPatterns = beamRadius;
 
     // ── Step 3: interference cluster grouping (spec Section 6.4) ─────────
     // All J beams are grouped; cluster IDs stored in m_clusterMap.
@@ -833,7 +932,7 @@ SatBhScheduler::BuildPlan(Time periodStart)
 
         BhSlotEntry slot;
         slot.startTime = f * m_slotDuration;   // Offset from frame start (f-th slot)
-        slot.duration  = m_slotDuration;        // T_s = 26.5 ms by default
+        slot.duration  = m_slotDuration;        // T_s (10 ms Phase 1 Starlink)
 
         // Convert 0-indexed beam IDs to 1-indexed (SNS3 convention),
         // attach cluster IDs, and set per-beam pattern via SetBeamPattern.

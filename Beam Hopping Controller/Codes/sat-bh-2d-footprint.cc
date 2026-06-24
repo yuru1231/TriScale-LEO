@@ -40,6 +40,7 @@
 #include "ns3/core-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
+#include "ns3/sat-constellation-params.h"
 #include "ns3/satellite-module.h"
 #include "ns3/traffic-module.h"
 
@@ -60,14 +61,17 @@ NS_LOG_COMPONENT_DEFINE("sat-bh-2d-footprint");
 // ─────────────────────────────────────────────────────────────────────────────
 struct FootprintConfig
 {
-    double   latCenter_deg  = 35.67619190;   // 中心緯度（東京，與 Python 框架一致）
-    double   lonCenter_deg  = 139.65031060;  // 中心經度
-    double   rFootprint_m   = 300000.0;      // footprint 半徑（公尺）
-    uint32_t Nx             = 4;             // 欄數（東西方向）
-    uint32_t Ny             = 3;             // 列數（南北方向）
-    uint32_t satId          = 0;             // 衛星索引（0–65，Iridium-66）
-    double   simTimeSec     = 60.0;          // 模擬時長（秒），0 = 只驗證幾何
-    double   warmUpSec      = 5.0;           // 暖機時間（秒）
+    double   latCenter_deg    = 35.67619190;   // 中心緯度（東京，與 Python 框架一致）
+    double   lonCenter_deg    = 139.65031060;  // 中心經度
+    double   rFootprint_m     = 0.0;           // footprint 半徑（公尺）; 0 = 自動從高度推導
+    uint32_t Nx               = 5;             // 欄數（東西方向）; starlink25 預設 5×5
+    uint32_t Ny               = 5;             // 列數（南北方向）
+    uint32_t satId            = 0;             // 衛星索引（Iridium-66: 0–65）
+    double   simTimeSec       = 60.0;          // 模擬時長（秒），0 = 只驗證幾何
+    double   warmUpSec        = 5.0;           // 暖機時間（秒）
+    double   altitudeKm       = 550.0;         // 衛星軌道高度 [km]（Starlink Shell-1 預設）
+    double   beamHalfAngleDeg = 2.0;           // beam 半角 [deg]（MIDDLE = 2.0°）
+    double   minElevDeg       = 25.0;          // 最小仰角 [deg]（coverage radius 用）
     std::string geoCsvFile    = "footprint-geometry.csv";
     std::string resultCsvFile = "footprint-results.csv";
 };
@@ -95,18 +99,38 @@ ParseConfig(int argc, char* argv[])
     FootprintConfig cfg;
     CommandLine cmd;
 
-    cmd.AddValue("latCenter",   "Footprint center latitude [deg]",   cfg.latCenter_deg);
-    cmd.AddValue("lonCenter",   "Footprint center longitude [deg]",  cfg.lonCenter_deg);
-    cmd.AddValue("rFootprint",  "Footprint circle radius [m]",       cfg.rFootprint_m);
-    cmd.AddValue("Nx",          "Number of columns (East-West)",      cfg.Nx);
-    cmd.AddValue("Ny",          "Number of rows (North-South)",       cfg.Ny);
-    cmd.AddValue("satId",       "Satellite index (0-65 for Iridium)", cfg.satId);
-    cmd.AddValue("simTime",     "Simulation duration [s] (0=geometry only)", cfg.simTimeSec);
-    cmd.AddValue("warmUp",      "Warm-up duration [s]",              cfg.warmUpSec);
-    cmd.AddValue("geoCsv",      "Geometry CSV output filename",       cfg.geoCsvFile);
-    cmd.AddValue("resultCsv",   "Results CSV output filename",        cfg.resultCsvFile);
+    cmd.AddValue("latCenter",     "Footprint center latitude [deg]",           cfg.latCenter_deg);
+    cmd.AddValue("lonCenter",     "Footprint center longitude [deg]",          cfg.lonCenter_deg);
+    cmd.AddValue("rFootprint",    "Footprint circle radius [m] (0=auto)",      cfg.rFootprint_m);
+    cmd.AddValue("Nx",            "Number of columns (East-West)",              cfg.Nx);
+    cmd.AddValue("Ny",            "Number of rows (North-South)",               cfg.Ny);
+    cmd.AddValue("satId",         "Satellite index",                            cfg.satId);
+    cmd.AddValue("simTime",       "Simulation duration [s] (0=geometry only)", cfg.simTimeSec);
+    cmd.AddValue("warmUp",        "Warm-up duration [s]",                       cfg.warmUpSec);
+    cmd.AddValue("altitudeKm",    "Satellite orbital altitude [km]",            cfg.altitudeKm);
+    cmd.AddValue("beamHalfAngle", "Beam half-power HALF-angle [deg] (MIDDLE=2.0)", cfg.beamHalfAngleDeg);
+    cmd.AddValue("minElevDeg",    "Minimum elevation angle [deg]",              cfg.minElevDeg);
+    cmd.AddValue("geoCsv",        "Geometry CSV output filename",               cfg.geoCsvFile);
+    cmd.AddValue("resultCsv",     "Results CSV output filename",                cfg.resultCsvFile);
 
     cmd.Parse(argc, argv);
+
+    // Auto-derive rFootprint_m from ConstellationParams when not explicitly set.
+    // RFootprintM() returns the inscribed-circle radius of the Nx×Ny beam grid:
+    //   cellW = 2 × altitudeKm × tan(beamHalfAngle)
+    //   L     = max(Nx,Ny) × cellW
+    //   r     = L / sqrt(2)   [inscribed circle of the square]
+    if (cfg.rFootprint_m <= 0.0)
+    {
+        ConstellationParams cp{cfg.altitudeKm, cfg.minElevDeg};
+        cfg.rFootprint_m = cp.RFootprintM(cfg.Nx, cfg.Ny, cfg.beamHalfAngleDeg);
+        NS_LOG_INFO("FootprintConfig: rFootprint_m auto-derived = "
+                    << cfg.rFootprint_m << " m"
+                    << "  (altitude=" << cfg.altitudeKm
+                    << " km  halfAngle=" << cfg.beamHalfAngleDeg
+                    << " deg  Nx=" << cfg.Nx << "  Ny=" << cfg.Ny << ")");
+    }
+
     return cfg;
 }
 
@@ -283,7 +307,7 @@ ExportResultsCsv(const std::vector<BeamCell>& cells,
 int
 main(int argc, char* argv[])
 {
-    // ── 1. 解析參數 ──────────────────────────────────────────────────────────
+    // ── 1. 解析參數（rFootprint_m 在 ParseConfig() 內自動推導）──────────────
     FootprintConfig cfg = ParseConfig(argc, argv);
 
     // ── 2. 幾何計算 ──────────────────────────────────────────────────────────

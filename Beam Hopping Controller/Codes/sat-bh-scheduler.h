@@ -105,6 +105,33 @@ class SatBhScheduler : public Object
     /// Return latest d_n vector (slot count per beam), for diagnostics
     const std::vector<uint32_t>& GetSlotAllocation() const;
 
+    // ── Constellation geometry injection ──────────────────────────────────────
+
+    /// Inject externally-computed beam grid positions into the scheduler.
+    ///
+    /// When set, RunSchedulingCycle() skips InitBeamPositions() and uses these
+    /// positions directly for ComputeInterferenceFactor().
+    ///
+    /// Positions must be in local (x=East, y=North) km coordinates with the
+    /// same indexing as the UT beam layout (beamId - 1 → index).
+    ///
+    /// Called by SatBhHelper::SetupScheduler() after computing the
+    /// altitude-derived grid from ConstellationParams::GridPositions().
+    ///
+    void SetBeamPositions(const std::vector<std::pair<double, double>>& positions);
+
+    /// Set constellation geometry parameters for the interference model.
+    ///
+    /// @param altitudeKm        Satellite orbital altitude [km]
+    /// @param beamHalfAngleDeg  Beam half-power HALF-angle [deg]
+    ///
+    /// These values determine rMiddle in ComputeInterferenceFactor():
+    ///   rMiddle = altitudeKm × tan(beamHalfAngleDeg × π/180)
+    ///
+    /// Default: Starlink Shell-1 (550 km, 2.0° → rMiddle ≈ 19.2 km).
+    ///
+    void SetConstellationParams(double altitudeKm, double beamHalfAngleDeg);
+
   private:
     // ── EM algorithm (spec Section 6.1) ──────────────────────────────────
 
@@ -201,10 +228,21 @@ class SatBhScheduler : public Object
     /// Two consecutive changes trigger an early rescheduling cycle (spec Section 6.1).
     std::vector<uint32_t> m_consecutiveChanges;
 
-    /// Pre-computed hexagonal grid beam positions (x, y) in km, 0-indexed.
+    /// Pre-computed beam positions (x, y) in km, 0-indexed by beamId-1.
     /// Used by ComputeInterferenceFactor() to estimate ω_{i,j}.
-    /// Populated on first call to InitBeamPositions().
+    /// Populated either by SetBeamPositions() (external, preferred) or by
+    /// InitBeamPositions() (internal fallback) on first RunSchedulingCycle().
     std::vector<std::pair<double, double>> m_beamPositions;
+
+    double m_altitudeKm{550.0};        ///< Satellite altitude [km] — drives rMiddle in interference model
+    double m_beamHalfAngleDeg{2.0};   ///< Beam half-angle [deg] — MIDDLE by default (BeamRadiusType)
+
+    /// Per-beam pattern for the current scheduling cycle.
+    /// Populated by BuildPlan() Step 2 before GroupClusters() is called,
+    /// enabling ComputeInterferenceFactor() to use each beam's actual assigned
+    /// radius (not a uniform MIDDLE fallback).
+    /// Indexed 0-based (same as m_beamPositions).
+    std::vector<BeamRadiusType> m_currentBeamPatterns;
 
     // ── Private Phase 2 helpers ───────────────────────────────────────────
 
@@ -216,6 +254,12 @@ class SatBhScheduler : public Object
     /// Supports ring-0 (1 beam), ring-1 (7 beams), ring-2 (19 beams).
     /// For N > 19, remaining beams are placed on a third ring.
     void InitBeamPositions();
+
+    /// Return the beam ground radius [km] for the given BeamRadiusType.
+    /// Uses m_altitudeKm and the half-angle convention defined in sat-bh-time-plan.h:
+    ///   r = altitudeKm × tan(halfAngleDeg × π/180)
+    /// XSMALL=1°, SMALL=1.5°, MIDDLE=2°, LARGE=2.5°, XLARGE=3°.
+    double BeamRadiusFromType(BeamRadiusType t) const;
 
     /// Single-shot method called by Simulator::Schedule from ScheduleNextCycle().
     /// Runs a scheduling cycle then re-schedules itself after T_p.

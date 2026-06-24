@@ -14,9 +14,9 @@
  *   WAIT_PLAN → ACTIVE     : ReceiveNewPlan() called while waiting
  *
  * Timing per slot (spec Section 5.1):
- *   T_s   = 26.5 ms  total slot window
+ *   T_s   = 10.0 ms  total slot window (project fixed)
  *   T_sw  = 2 ms     beam switching dead-time (no data)
- *   Usable = T_s − T_sw = 24.5 ms  (emitted as BeamActivateCallback duration)
+ *   Usable = T_s − T_sw = 8.0 ms  (emitted as BeamActivateCallback duration)
  *
  * Callback chain (connected by SatBhHelper::SetupObc):
  *   EnterSlot        → BeamActivateCallback   → SatBhMetrics::OnSlotActivated

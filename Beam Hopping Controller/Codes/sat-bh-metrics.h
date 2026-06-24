@@ -97,6 +97,13 @@ class SatBhMetrics : public Object
     Time m_reportInterval;
     Time m_warmUpTime;
     Time m_windowStart;
+    // Rate-limit gate: FlushMetrics only writes when Simulator::Now() >= m_nextFlushTime.
+    // Updated to Now() + T_p after each write, so at most one write per T_p regardless
+    // of how many callers (timer, OBC slot callback, RunDynamicBstpCycle) trigger it.
+    Time m_nextFlushTime;
+    // Last simulation time at which a trace-sink event was recorded (post-warmup).
+    // Used by FinalFlush to detect post-Simulator::Destroy() calls where Now() == 0.
+    Time m_lastEventTime;
 
     std::string m_outputPath;
     std::ofstream m_csvFile;
