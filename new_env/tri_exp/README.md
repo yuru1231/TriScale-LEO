@@ -15,7 +15,7 @@ Important files:
 INSTALLATION.md                         Chinese installation SOP
 INSTALL_MANIFEST.txt                    Minimal file manifest
 scripts/install_tri_exp_minimal.sh      Dry-run/apply installer
-contribsatellite/CMakeLists.txt.txt     Installed as contrib/satellite/CMakeLists.txt
+contribsatellite/CMakeLists.txt         Installed as contrib/satellite/CMakeLists.txt
 scratch/bh_dynamic/                     Experiment targets
 ```
 

@@ -1,12 +1,9 @@
 # tri_exp 在 ns-3.43 的安裝說明
 
-這份文件是將 `tri_exp` 部署到既有 ns-3.43 目錄的分階段 SOP。部署方式採用
-manifest 驅動的最小安裝，只複製必要的 satellite 修改、新增的 beam-hopping
-檔案、CMake 更新，以及 scratch 實驗程式。
+這份文件是將 `tri_exp` 部署到 ns-3.43 目錄的分階段 SOP。。
 
-## 已確認的本機基準
+## 本機基準
 
-檢查日期：2026-06-25
 
 ```text
 tri_exp path:        /home/lucy/tri_exp
@@ -16,7 +13,7 @@ cmake:               3.22.1
 python3:             3.10.12
 ```
 
-本機 preflight 檢查已通過：
+preflight 檢查：
 
 ```text
 [PASS] /home/lucy/ns-allinone-3.43/ns-3.43 exists
@@ -26,7 +23,7 @@ python3:             3.10.12
 [PASS] /home/lucy/tri_exp exists
 [PASS] /home/lucy/tri_exp/model exists
 [PASS] /home/lucy/tri_exp/helper exists
-[PASS] /home/lucy/tri_exp/contribsatellite/CMakeLists.txt.txt exists
+[PASS] /home/lucy/tri_exp/contribsatellite/CMakeLists.txt exists
 [PASS] /home/lucy/tri_exp/scratch/bh_dynamic/CMakeLists.txt exists
 [PASS] /home/lucy/tri_exp/scratch/bh_dynamic/Codes/CMakeLists.txt exists
 [PASS] /home/lucy/tri_exp/scratch/bh_dynamic/Codes/sat-bh-example.cc exists
@@ -34,7 +31,7 @@ python3:             3.10.12
 [PASS] satellite data contains scenarios/constellation-starlink-1584-sats
 ```
 
-本機 clean-room 驗證已於 2026-06-25 通過，使用：
+本機 clean-room 驗證，使用：
 
 ```text
 test ns-3.43 path: /home/lucy/ns-allinone-3.43-tri-exp-test/ns-3.43
@@ -72,14 +69,14 @@ rm -rf build cmake-cache
 ```text
 tri_exp/model/<changed files only>      -> ns-3.43/contrib/satellite/model/
 tri_exp/helper/<changed/new files only> -> ns-3.43/contrib/satellite/helper/
-tri_exp/contribsatellite/CMakeLists.txt.txt
+tri_exp/contribsatellite/CMakeLists.txt
                                         -> ns-3.43/contrib/satellite/CMakeLists.txt
 tri_exp/scratch/bh_dynamic/*            -> ns-3.43/scratch/bh_dynamic/
 ```
 
-`tri_exp/contribsatellite/CMakeLists.txt.txt` 必須安裝成
-`contrib/satellite/CMakeLists.txt`。如果保留 `.txt` 副檔名，ns-3 不會使用更新後
-的 satellite build definition。
+`tri_exp/contribsatellite/CMakeLists.txt` 會安裝成
+`contrib/satellite/CMakeLists.txt`，讓 ns-3 使用更新後的 satellite build
+definition。
 
 最小安裝清單記錄於：
 
@@ -222,7 +219,7 @@ done
 
 ```bash
 install -D \
-  "$TRI_EXP/contribsatellite/CMakeLists.txt.txt" \
+  "$TRI_EXP/contribsatellite/CMakeLists.txt" \
   "$NS3/contrib/satellite/CMakeLists.txt"
 ```
 
@@ -283,16 +280,16 @@ model/satellite-topology.cc
 model/satellite-ut-mac.cc
 ```
 
-這 15 個檔案是真正的內容差異，不是只有空白或換行差異。其餘 385 個同相對路徑
+15 個檔案有內容差異，其餘 385 個同相對路徑
 檔案與目前本機 ns-3.43 satellite 檔案 byte-for-byte 完全相同。
 
-完整差異清單也保存在：
+完整差異清單在：
 
 ```text
-/home/lucy/tri_exp_ns343_different_existing_files.txt
+tri_exp_ns343_different_existing_files.txt
 ```
 
-15 個既有差異檔案的功能分類：
+檔案功能分類：
 
 ```text
 Gateway/beam override API:
@@ -321,7 +318,7 @@ UT MAC stale-control-message tolerance:
   model/satellite-ut-mac.cc
 ```
 
-這些修改新增的重要行為：
+修改新增的重要行為：
 
 1. `SatConf` / `SatHelper` 可以覆寫某個 beam 使用的 gateway。
 2. `SatHelper::IslsEnabled` 可以針對 sparse fixed snapshot 停用 ISL 安裝。
@@ -370,8 +367,8 @@ helper/sat-power-allocator.cc
 helper/sat-power-allocator.h
 ```
 
-這 32 個新的 satellite helper 檔案都已列在
-`tri_exp/contribsatellite/CMakeLists.txt.txt` 中，因此當該 CMakeLists 被安裝成
+32 個新的 satellite helper 檔案都已列在
+`tri_exp/contribsatellite/CMakeLists.txt` 中，因此當該 CMakeLists 被安裝成
 `contrib/satellite/CMakeLists.txt` 後，這些檔案預期會被編進 `satellite` contrib
 library。
 
@@ -386,7 +383,7 @@ scratch/bh_dynamic/Codes/sat-bh-example.cc
 scratch/bh_dynamic/Codes/sat-constellation-params.h
 ```
 
-## 另一平台的 preflight checklist
+## preflight checklist
 
 複製檔案前先執行以下檢查：
 
@@ -399,7 +396,7 @@ test -d /path/to/ns-3.43/contrib/satellite/data/scenarios/constellation-starlink
 
 test -d /path/to/tri_exp/model
 test -d /path/to/tri_exp/helper
-test -f /path/to/tri_exp/contribsatellite/CMakeLists.txt.txt
+test -f /path/to/tri_exp/contribsatellite/CMakeLists.txt
 test -f /path/to/tri_exp/scratch/bh_dynamic/CMakeLists.txt
 test -f /path/to/tri_exp/scratch/bh_dynamic/Codes/CMakeLists.txt
 test -f /path/to/tri_exp/scratch/bh_dynamic/Codes/sat-bh-example.cc
@@ -414,7 +411,7 @@ python3 --version
 
 ## Build 驗證目標
 
-部署後，最小驗證流程如下：
+部署後，最小驗證流程：
 
 ```bash
 cd /path/to/ns-3.43
@@ -439,14 +436,13 @@ abort。
 installation 驗證時，請用 `--simTime=0` 以 geometry-only mode 執行 2D footprint
 example。完整模擬，例如 `--simTime=60`，目前需要額外調整 Iridium scenario 的
 frame/bandwidth 配置；否則 SNS3 可能以
-`Bandwidth of super frame exceeds allocated bandwidth` abort。完整模擬不屬於最小安裝
-smoke test。
-
+`Bandwidth of super frame exceeds allocated bandwidth` abort。
 ## 已知 portability risks
 
 最終 installation SOP 必須明確處理以下事項：
 
-1. 安裝時必須將 `CMakeLists.txt.txt` 改名為 `CMakeLists.txt`。
+1. 必須將 `tri_exp/contribsatellite/CMakeLists.txt` 安裝到
+   `contrib/satellite/CMakeLists.txt`。
 2. 既有 `build/` 與 `cmake-cache/` 可能含有 stale absolute paths。使用 `cp -a`
    複製 ns-3 tree 後，這點尤其重要。
 3. run time 需要 `contrib/satellite/data`，而 `tri_exp` 不會取代該資料目錄。

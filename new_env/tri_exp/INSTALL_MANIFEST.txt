@@ -56,7 +56,7 @@ helper/sat-power-allocator.cc
 helper/sat-power-allocator.h
 
 [replace_satellite_cmakelists]
-contribsatellite/CMakeLists.txt.txt -> contrib/satellite/CMakeLists.txt
+contribsatellite/CMakeLists.txt -> contrib/satellite/CMakeLists.txt
 
 [install_scratch_files]
 scratch/bh_dynamic/CMakeLists.txt
