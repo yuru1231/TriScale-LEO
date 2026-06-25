@@ -27,7 +27,7 @@
 
 ---
 
-## 3. 模擬執行 — starlink25 Phase G
+## 2. 模擬執行 — starlink25 Phase G
 
 **指令：**
 ```bash
@@ -51,7 +51,7 @@ Phase G (DynamicBstp=1)  K=4  beams=25  60s → complete
 
 ---
 
-## 4. bh-timeplan 分析
+## 3. bh-timeplan 分析
 
 19 個slot（M = ⌈503/26.5⌉），K=4，25 個波束全部涵蓋：
 
@@ -72,7 +72,7 @@ Phase G (DynamicBstp=1)  K=4  beams=25  60s → complete
 
 ---
 
-## 5. bh-metrics 分析
+## 4. bh-metrics 分析
 
 | KPI | obc | 解釋 |
 |---|---|---|
@@ -96,7 +96,7 @@ t = 11.509s : LARGE = {14,15,16,17}
 
 ---
 
-## 6. 驗證清單
+## 5. 驗證清單
 
 | 項目 | 結果 |
 |---|---|
@@ -110,7 +110,7 @@ t = 11.509s : LARGE = {14,15,16,17}
 
 ---
 
-## 7. 下一步
+## 6. 下一步
 
 若要觀察需求感知波束選擇（熱點波束 {1,4,13,19,22} 獲得比非熱點更長的駐留時間），需搭配 Phase E + F 執行：
 
