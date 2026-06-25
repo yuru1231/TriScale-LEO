@@ -1,0 +1,67 @@
+# Minimal tri_exp install manifest for ns-3.43
+#
+# This manifest intentionally excludes model/helper files that are byte-for-byte
+# identical to the local ns-3.43 satellite module. Install only these files plus
+# the satellite CMakeLists replacement and scratch programs.
+
+[replace_existing_satellite_files]
+helper/satellite-conf.cc
+helper/satellite-conf.h
+helper/satellite-helper.cc
+helper/satellite-helper.h
+helper/simulation-helper.cc
+helper/simulation-helper.h
+model/satellite-isl-arbiter-unicast.h
+model/satellite-isl-arbiter.cc
+model/satellite-orbiter-net-device.cc
+model/satellite-point-to-point-isl-channel.cc
+model/satellite-point-to-point-isl-channel.h
+model/satellite-sgp4-mobility-model.cc
+model/satellite-sgp4-mobility-model.h
+model/satellite-topology.cc
+model/satellite-ut-mac.cc
+
+[add_new_satellite_files]
+helper/beam-hopping-manager.cc
+helper/beam-hopping-manager.h
+helper/ft-filter.cc
+helper/ft-filter.h
+helper/isl-graph.cc
+helper/isl-graph.h
+helper/sat-bh-helper.cc
+helper/sat-bh-helper.h
+helper/sat-bh-metrics.cc
+helper/sat-bh-metrics.h
+helper/sat-bh-obc.cc
+helper/sat-bh-obc.h
+helper/sat-bh-precoder.cc
+helper/sat-bh-precoder.h
+helper/sat-bh-resource-manager.cc
+helper/sat-bh-resource-manager.h
+helper/sat-bh-scheduler.cc
+helper/sat-bh-scheduler.h
+helper/sat-bh-time-plan.cc
+helper/sat-bh-time-plan.h
+helper/sat-bh-user-associator.cc
+helper/sat-bh-user-associator.h
+helper/sat-constellation-params.h
+helper/sat-dynamic-bstp-provider.h
+helper/sat-greedy-bstp-provider.cc
+helper/sat-greedy-bstp-provider.h
+helper/sat-gw-cache-queue.cc
+helper/sat-gw-cache-queue.h
+helper/sat-l1-routing-interface.cc
+helper/sat-l1-routing-interface.h
+helper/sat-power-allocator.cc
+helper/sat-power-allocator.h
+
+[replace_satellite_cmakelists]
+contribsatellite/CMakeLists.txt.txt -> contrib/satellite/CMakeLists.txt
+
+[install_scratch_files]
+scratch/bh_dynamic/CMakeLists.txt
+scratch/bh_dynamic/Codes/CMakeLists.txt
+scratch/bh_dynamic/Codes/README.md
+scratch/bh_dynamic/Codes/sat-bh-2d-footprint.cc
+scratch/bh_dynamic/Codes/sat-bh-example.cc
+scratch/bh_dynamic/Codes/sat-constellation-params.h

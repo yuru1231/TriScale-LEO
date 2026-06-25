@@ -1,0 +1,26 @@
+# Build/cache output
+build/
+cmake-cache/
+CMakeFiles/
+CMakeCache.txt
+__pycache__/
+*.o
+*.so
+*.a
+
+# ns-3 / simulation outputs
+data/
+testpy-output/
+*.log
+*.pcap
+*.tr
+*.xml
+*.csv
+*.dat
+*.plt
+
+# Local editor/system files
+*~
+*.swp
+.DS_Store
+
