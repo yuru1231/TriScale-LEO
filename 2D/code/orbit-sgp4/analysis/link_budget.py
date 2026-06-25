@@ -3,8 +3,19 @@ analysis/link_budget.py
 -----------------------
 Pure-function module for satellite link budget calculations and MRC combining.
 
-All parameters mirror SimConfig (sat-multi-beam-config.h) defaults.
-No I/O — import and call functions directly.
+All parameters mirror SimConfig (sat-multi-beam-config.h) with Iridium-NEXT
+constellation defaults.
+
+Path loss model:
+  L_total = FSPL + L_atm
+  FSPL    = 20·log10(4π·d·f/c)          (d from spherical Earth geometry)
+  L_atm   = atm_loss_zenith_db / sin(ε)  (simple zenith-scaled model,
+             3GPP TR 38.811 Ka-band clear sky ≈ 0.4 dB)
+
+Beam gain model (5×5 elliptic grid):
+  G_beam  = 10·log10(1/N_beams) + G_peak_dBi
+  N_beams = 25   (5×5 along-track/cross-track elliptic grid)
+  Peak at beam centre: |g|²_peak = 1/25 → G_beam = −14 + 60.5 = 46.5 dBi
 
 Public API
 ----------
@@ -22,17 +33,22 @@ from typing import List, Optional
 # ---------------------------------------------------------------------------
 
 DEFAULT_CFG = {
-    "speed_of_light_ms":  299_792_458.0,   # m/s
-    "boltzmann":          1.3806485e-23,   # J/K
-    "h_satellite_m":      780e3,           # m   — Iridium NEXT altitude
-    "r_earth_m":          6_371e3,         # m   — mean Earth radius
-    "center_freq_hz":     30e9,            # Hz  — Ka-band
-    "bandwidth_hz":       25e6,            # Hz  — channel bandwidth
-    "antenna_gain_db":    60.5,            # dBi — UPA peak gain
-    "noise_figure_db":    7.0,             # dB  — receiver NF
-    "transmit_power_w":   63.0,            # W
-    "n_beams":            19,              # total beams (2-ring hex)
-    "temperature_k":      300.0,           # K
+    "speed_of_light_ms":    299_792_458.0,  # m/s
+    "boltzmann":            1.3806485e-23,  # J/K
+    "h_satellite_m":        634e3,          # m   — Iridium-NEXT TLE epoch ~1999 actual altitude
+                                            #       (SGP4-derived from constellation_status.json: 634.2 km)
+                                            #       overridden at runtime by check_coverage.py via JSON
+    "r_earth_m":            6_371e3,        # m   — mean Earth radius
+    "center_freq_hz":       30e9,           # Hz  — Ka-band
+    "bandwidth_hz":         25e6,           # Hz  — channel bandwidth
+    "antenna_gain_db":      60.5,           # dBi — UPA peak gain
+    "noise_figure_db":      7.0,            # dB  — receiver noise figure
+    "transmit_power_w":     63.0,           # W
+    "n_beams":              25,             # total beams (5×5 elliptic grid)
+    "temperature_k":        300.0,          # K
+    "atm_loss_zenith_db":   0.4,            # dB  — Ka-band zenith atmospheric absorption
+                                            #       (3GPP TR 38.811, clear sky ≈ 0.4 dB)
+                                            #       L_atm(ε) = atm_loss_zenith / sin(ε)
 }
 
 
@@ -50,8 +66,8 @@ def _merge_cfg(user_cfg):
 def _slant_range_m(elev_deg: float, cfg: dict) -> float:
     """
     Slant range from ground observer to satellite (m).
-    Derived from the law of cosines on the Earth-satellite triangle:
-        range = R_E * (sqrt((R_orb/R_E)^2 - cos^2(elev)) - sin(elev))
+    Spherical Earth law of cosines:
+        d = R_E · (sqrt((R_orb/R_E)² − cos²(ε)) − sin(ε))
     """
     r_e   = cfg["r_earth_m"]
     r_orb = r_e + cfg["h_satellite_m"]
@@ -62,23 +78,35 @@ def _slant_range_m(elev_deg: float, cfg: dict) -> float:
 
 
 def _fspl_db(slant_m: float, cfg: dict) -> float:
-    """Free-space path loss (dB): 20*log10(4π*d*f/c)."""
+    """Free-space path loss: L_FSPL = 20·log10(4π·d·f/c)  (dB)."""
     return 20.0 * math.log10(
         4.0 * math.pi * slant_m * cfg["center_freq_hz"] / cfg["speed_of_light_ms"]
     )
 
 
+def _atmospheric_loss_db(elev_deg: float, cfg: dict) -> float:
+    """
+    Atmospheric attenuation scaled from zenith value:
+        L_atm(ε) = L_zenith / sin(max(ε, 5°))
+    Mirrors the approximation used by ComputeAtmosphericLoss_dB in C++
+    (extracted from ThreeGppNTNDenseUrbanPropagationLossModel).
+    """
+    elev_eff = max(elev_deg, 5.0)
+    return cfg["atm_loss_zenith_db"] / math.sin(math.radians(elev_eff))
+
+
 def _beam_gain_db(cfg: dict) -> float:
     """
-    Effective beam gain at beam centre for the serving beam (dB).
-    UPA array with N_beams divides peak gain evenly in the far-field:
-        G_beam = 10*log10(1/N_beams) + G_peak_dBi
+    Effective beam gain at beam centre for the serving beam (dBi).
+    UPA Dirichlet-kernel peak:
+        G_beam = 10·log10(1/N_beams) + G_peak_dBi
+    N_beams=25: G_beam = −14.0 + 60.5 = 46.5 dBi
     """
     return 10.0 * math.log10(1.0 / cfg["n_beams"]) + cfg["antenna_gain_db"]
 
 
 def _noise_power_dbw(cfg: dict) -> float:
-    """Thermal noise power (dBW): k*T*B*10^(NF/10)."""
+    """Thermal noise power: N = k·T·B·10^(NF/10)  (dBW)."""
     noise_w = (cfg["boltzmann"] * cfg["temperature_k"]
                * cfg["bandwidth_hz"]
                * 10.0 ** (cfg["noise_figure_db"] / 10.0))
@@ -90,6 +118,9 @@ def snr_at_elevation(elev_deg: float, cfg: Optional[dict] = None) -> float:
     Analytical SNR (dB) for a user at the serving beam centre at the given
     satellite elevation angle.
 
+    Formula:
+        SNR = P_tx + G_beam − L_FSPL − L_atm − N_thermal
+
     Parameters
     ----------
     elev_deg : satellite elevation angle above horizon (degrees, 0–90)
@@ -99,12 +130,13 @@ def snr_at_elevation(elev_deg: float, cfg: Optional[dict] = None) -> float:
     -------
     SNR in dB (can be negative at low elevation).
     """
-    c = _merge_cfg(cfg)
+    c         = _merge_cfg(cfg)
     slant     = _slant_range_m(elev_deg, c)
     fspl      = _fspl_db(slant, c)
+    l_atm     = _atmospheric_loss_db(elev_deg, c)
     g_beam    = _beam_gain_db(c)
     tx_dbw    = 10.0 * math.log10(c["transmit_power_w"])
-    rx_dbw    = tx_dbw + g_beam - fspl
+    rx_dbw    = tx_dbw + g_beam - fspl - l_atm
     noise_dbw = _noise_power_dbw(c)
     return rx_dbw - noise_dbw
 
@@ -113,9 +145,7 @@ def mrc_combine_snr_db(snr_db_list: list) -> float:
     """
     Maximum-Ratio Combining (MRC) of independent satellite paths.
 
-    For N satellites with individual SNR γ_i (linear), MRC gives:
-        γ_combined = Σ γ_i
-    which in dB is: 10*log10(Σ 10^(γ_i / 10)).
+    γ_MRC = Σᵢ γᵢ_linear  →  SNR_MRC = 10·log10(Σᵢ 10^(γᵢ/10))
 
     Parameters
     ----------
@@ -140,28 +170,35 @@ def link_budget_table(
     cfg: Optional[dict] = None,
 ) -> list:
     """
-    Compute SNR at a set of elevation angles.
+    Compute link budget metrics at a set of elevation angles.
 
     Parameters
     ----------
-    elevs_deg : list of elevation angles (deg); defaults to [5,10,20,30,45,60,90]
+    elevs_deg : list of elevation angles (deg).
+                Defaults to [5, 10, 15, 20, 25, 30, 45, 60, 75, 90].
     cfg       : optional SimConfig overrides
 
     Returns
     -------
-    List of dicts: [{"elev_deg": ..., "slant_km": ..., "fspl_db": ..., "snr_db": ...}]
+    List of dicts with keys:
+        elev_deg, slant_km, fspl_db, atm_loss_db, total_path_loss_db, snr_db
     """
     if elevs_deg is None:
-        elevs_deg = [5, 10, 20, 30, 45, 60, 90]
+        elevs_deg = [5, 10, 15, 20, 25, 30, 45, 60, 75, 90]
     c = _merge_cfg(cfg)
     rows = []
     for e in elevs_deg:
-        slant = _slant_range_m(e, c)
+        slant    = _slant_range_m(e, c)
+        fspl     = _fspl_db(slant, c)
+        l_atm    = _atmospheric_loss_db(e, c)
+        snr      = snr_at_elevation(e, cfg)
         rows.append({
-            "elev_deg": e,
-            "slant_km": slant / 1e3,
-            "fspl_db":  _fspl_db(slant, c),
-            "snr_db":   snr_at_elevation(e, cfg),
+            "elev_deg":          e,
+            "slant_km":          slant / 1e3,
+            "fspl_db":           fspl,
+            "atm_loss_db":       l_atm,
+            "total_path_loss_db": fspl + l_atm,
+            "snr_db":            snr,
         })
     return rows
 
@@ -170,9 +207,9 @@ def critical_elevation(cfg: Optional[dict] = None, snr_thresh_db: float = 0.0) -
     """
     Binary-search for the elevation angle at which SNR = snr_thresh_db.
 
-    Returns the critical elevation in degrees (between 0 and 90).
-    Returns 0.0 if even nadir (90°) is below threshold.
-    Returns 90.0 if even the minimum elevation (5°) is above threshold.
+    Returns the critical elevation in degrees (0–90).
+    Returns  0.0 if SNR ≥ threshold even at the horizon.
+    Returns 90.0 if SNR < threshold even at zenith.
     """
     lo, hi = 0.01, 90.0
     if snr_at_elevation(hi, cfg) < snr_thresh_db:
@@ -186,3 +223,43 @@ def critical_elevation(cfg: Optional[dict] = None, snr_thresh_db: float = 0.0) -
         else:
             hi = mid
     return round((lo + hi) / 2.0, 2)
+
+
+# ---------------------------------------------------------------------------
+# Standalone usage
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    c      = DEFAULT_CFG
+    g_beam = _beam_gain_db(c)
+    n_thw  = _noise_power_dbw(c)
+    crit   = critical_elevation()
+
+    print("=== Link Budget Parameters ===")
+    print(f"  h_satellite   : {c['h_satellite_m']/1e3:.0f} km  (Iridium-NEXT)")
+    print(f"  freq          : {c['center_freq_hz']/1e9:.0f} GHz  (Ka-band)")
+    print(f"  n_beams       : {c['n_beams']}  (5×5 elliptic grid)")
+    print(f"  G_beam (peak) : {g_beam:.2f} dBi  "
+          f"= 10·log10(1/{c['n_beams']}) + {c['antenna_gain_db']} dBi")
+    print(f"  P_tx          : {c['transmit_power_w']:.0f} W  "
+          f"= {10*math.log10(c['transmit_power_w']):.1f} dBW")
+    print(f"  N_thermal     : {n_thw:.2f} dBW  "
+          f"(T={c['temperature_k']:.0f} K, B={c['bandwidth_hz']/1e6:.0f} MHz, "
+          f"NF={c['noise_figure_db']:.0f} dB)")
+    print(f"  L_atm zenith  : {c['atm_loss_zenith_db']:.1f} dB  "
+          f"(Ka-band clear sky, 3GPP TR 38.811)")
+    print()
+
+    print("=== Link Budget vs Elevation ===")
+    rows = link_budget_table()
+    print(f"  {'Elev (°)':>8s}  {'Slant (km)':>10s}  "
+          f"{'FSPL (dB)':>9s}  {'L_atm (dB)':>10s}  {'SNR (dB)':>8s}")
+    print(f"  {'-'*8}  {'-'*10}  {'-'*9}  {'-'*10}  {'-'*8}")
+    thresh = 0.0
+    for r in rows:
+        marker = " ← below threshold" if r["snr_db"] < thresh else ""
+        print(f"  {r['elev_deg']:>8.0f}  {r['slant_km']:>10.1f}  "
+              f"{r['fspl_db']:>9.1f}  {r['atm_loss_db']:>10.2f}  "
+              f"{r['snr_db']:>8.1f}{marker}")
+    print(f"\n  Critical elevation (SNR = 0 dB): {crit:.1f}°")
+    print(f"  Satellites below {crit:.1f}° elevation cannot provide service")
