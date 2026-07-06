@@ -10,8 +10,6 @@ This package contains the BH example changes for:
 Archive:
 sat-bh-demand-remaining-fix-20260706.tar.gz
 
-SHA256:
-586c36a1ea34a036dab4b4187321a187058036be9c6ad18aa75aa3f04bb1307a
 
 Files:
 scratch/bh_dynamic/Codes/sat-bh-example.cc
