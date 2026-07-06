@@ -63,7 +63,9 @@
 #include "ns3/object.h"
 
 #include <cstdint>
+#include <fstream>   // std::ofstream — m_trafficOfs for sat-bh-traffic.tr
 #include <map>
+#include <string>
 #include <utility>   // std::pair — used by m_beamToggleMap key {satId, beamId}
 
 // Forward declarations for Phase E/F SNS3 components (full includes in .cc)
@@ -216,6 +218,9 @@ struct BhExperimentConfig
     // ── Output ────────────────────────────────────────────────────────────
     std::string metricsOutputFile{"bh-metrics.csv"};
     std::string timePlanCsvFile{"bh-timeplan.csv"};
+    /// BH real demand / plan / OBC event trace file (PLAN, EVENT, DEMAND rows).
+    /// Rows written by SatBhHelper during simulation; empty string disables trace.
+    std::string trafficTraceFile{"sat-bh-traffic.tr"};
 };
 
 // ── SatBhHelper ───────────────────────────────────────────────────────────
@@ -448,6 +453,10 @@ class SatBhHelper : public Object
 
     uint32_t             m_syntheticSlotIdx; ///< Tracks position in synthetic driver loop
     bool                 m_installed;        ///< True after Install() has been called
+
+    /// Output stream for sat-bh-traffic.tr (PLAN/EVENT/DEMAND rows).
+    /// Opened in Install(); written by ConfToTimePlan, SetupObc callbacks, OnBacklogRequestTrace.
+    std::ofstream        m_trafficOfs;
 };
 
 } // namespace ns3

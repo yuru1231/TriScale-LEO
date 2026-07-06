@@ -18,7 +18,7 @@
 > - ⏳ 進行中 / 待處理
 > - ❌ 錯誤 / 失敗（附說明）
 
-> **Layer 2 前置驗證已完成；ns-3 模組 Phase A–E ✅；Phase F ⏳。**
+> **Layer 2 前置驗證已完成；ns-3 模組 Phase A–G 實作中；Phase G (Dynamic BSTP) ✅ 架構完成；Phase F ⏳。**
 
 | 步驟 | 狀態 | 時間 | 備註 |
 |------|------|------|------|
@@ -26,12 +26,13 @@
 | **前置：MDP 設計（狀態 / 動作 / 獎勵）** | ✅ | 2026-06 | 狀態 194 維；連續動作空間；4 項獎勵係數（詳見 §MDP 設計） |
 | **前置：Layer 1 介面確認** | ✅ | 2026-04 | `routing_plan.csv` 含 `bandwidth_budget_Mbps` 欄位 |
 | Phase A：文件重寫 | ✅ | — | Layer2.md 架構完整 |
-| Phase B：資料模型擴充 | ✅ | — | `SatBhTimePlan` / `BhSlotEntry` per-beam 擴充 |
+| Phase B：資料模型擴充 | ✅ | — | `SatBhTimePlan` / `BhSlotEntry` per-beam 擴充；T_s=10ms、T_p=80ms、M=8 |
 | Phase C：Frame-scale 模組 | ✅ | — | `SatUserAssociator`、`SatResourceManager` |
 | Phase D：Slot-scale 模組 | ✅ | — | `SatPowerAllocator` IWFA water-filling |
-| Phase E：真實 SNS3 API 接線 | ✅ | 2026-05 | `ConnectTracesPhaseE()`、UT 重分配、功率寫回 |
-| Phase F：真實需求輸入 | ⏳ | — | DAMA 佇列 trace + `CnoInfo` 接線待實作 |
-| Layer 2 + Layer 1 端對端整合測試 | ⏳ | — | gw2ut 場景，DRL vs Greedy 效能比較 |
+| Phase E：真實 SNS3 API 接線 | ✅ | 2026-05 | `ConnectTracesPhaseE()`、UT 重分配、功率寫回、`BuildBeamToggleMap()` OBC 真實 link toggle |
+| Phase F：真實 RBDC 需求輸入 | ⏳ | — | `BacklogRequestsTrace` → RM + DynamicBstpProvider；DAMA CRA→RBDC 切換 |
+| **Phase G：Dynamic BSTP Provider** | ✅ | 2026-06 | `SatDynamicBstpProvider`（greedy top-K）；starlink25 場景；FWD hotspot 注入 |
+| Layer 2 + Layer 1 端對端整合測試 | ⏳ | — | gw2ut 場景，DRL vs Greedy vs Dynamic-BH 效能比較 |
 
 ---
 
@@ -39,28 +40,26 @@
 
 ### 2.1 Time Axis（時間結構）
 
-
-![Time Axis](./././time-axis.png)
-
--  Frame 持續 T_frame = 503 ms，內部切成 19 個 Slot，每個 Slot 為 26.5 ms。
--  Frame Boundary Events
-   - PollUtStates — 查詢 SatTopology，收集目前 UT 狀態
-   - RunFrameOptimization — 呼叫 UserAssociator + PowerAllocator，決定下一幀各 Slot 要開哪些 Beam
-   - MoveUtsBetweenBeams — 通知 SatNcc 和 TIM-U，把 UT 移到新的 Beam assignment
-- Slot Boundary Events
-   - SatBhObc — 根據排程結果，執行 Beam activate / deactivate
-   - SatGwCacheQueue — 從 Cache 中取出封包，傳送到 RF 端（實際傳輸）
+- Frame 持續 T_p = 80 ms，內部切成 8 個 Slot，每個 Slot 為 10 ms。
+- Frame Boundary Events（每 80 ms）
+  - `PollUtStates` — 查詢 SatTopology，收集目前 UT 狀態及 RBDC 需求（Phase F）
+  - `RunFrameOptimization` — 呼叫 UserAssociator + PowerAllocator，決定下一幀各 Slot 分配
+  - `MoveUtsBetweenBeams` — 通知 SatNcc 和 TIM-U，UT 移到新 Beam（1-frame 延遲生效）
+  - `RunDynamicBstpCycle` — Phase G：呼叫 SatDynamicBstpProvider::GetNextConf()，產生新 BHTP
+- Slot Boundary Events（每 10 ms）
+  - `SatBhObc` — 根據 BHTP 執行 Beam activate / deactivate（ToggleState 接線至 GW SatNetDevice）
+  - `SatGwCacheQueue` — 從 Cache 中取出封包，傳送到 RF 端
 
 **關鍵時間參數：**
 
-| 符號 | 定義 | 值 |
-|------|------|----|
-| T_slot | 單一時隙持續時間 | 26.5 ms |
-| T_frame | 幀持續時間 = 19 × T_slot | 503 ms |
-| T_sw | Beam switching time | 2 ms |
-| T_prop | GW → SAT 指令傳播延遲 | 10 ms |
-| M | 每幀時隙總數 | 19 |
-| K | 同一時隙最多同時活躍 beam 數 | 2 ~ 4（basic=2，full=3，上限 4） |
+| 符號 | 定義 | 值 | 說明 |
+|------|------|----|------|
+| T_s | 單一時隙持續時間 | **10 ms** | 原 26.5 ms，已改 |
+| T_p | BHTP 週期 = M × T_s | **80 ms** | 原 503 ms，已改 |
+| T_sw | Beam switching dead-time | 2 ms | 不變；可用窗口 = T_s − T_sw = 8 ms |
+| T_prop | GW → SAT 指令傳播延遲 | 10 ms | 不變 |
+| M | 每幀時隙總數 | **8** | 原 19，已改 |
+| K | 同一時隙最多同時活躍 beam 數 | 3（預設） | basic=2，full=3，上限 4 |
 
 ---
 
@@ -103,29 +102,30 @@ subgraph INPUT [Input Layer]
     I1["SatTopology<br/>GetUtBeamId / GetUtNodes<br/>Phase E"]
     I2["SatBeamScheduler<br/>UsableCapacity / UnmetCapacity<br/>Phase E"]
     I3["SatNetDevice<br/>RxDelay / Tx / Rx<br/>Phase E"]
-    I4["SatGwMac<br/>DAMA Queue<br/>Phase F"]
+    I4["SatBeamScheduler<br/>BacklogRequestsTrace RBDC<br/>Phase F"]
     I5["SatPhy<br/>CnoInfo<br/>Phase F"]
 end
 
-%% ── DECISION  (Frame Scale 503 ms) ─────────────────────
-subgraph DECISION [Decision Layer - Frame Scale 503 ms]
+%% ── DECISION  (Frame Scale 80 ms) ──────────────────────
+subgraph DECISION [Decision Layer - Frame Scale 80 ms]
     direction LR
-    D1["SatResourceManager<br/>RunFrameOptimization @ 503 ms"]
+    D1["SatResourceManager<br/>RunFrameOptimization @ 80 ms"]
     D2["SatUserAssociator<br/>WFQ / Priority / RR"]
     D3["SatBeamPatternSelector<br/>Nu ratio and setup-time<br/>Optional"]
+    D4["SatDynamicBstpProvider<br/>Phase G: greedy top-K<br/>demand + fairness score"]
 end
 
-%% ── RESOURCE  (Data Model + Slot Scale 26.5 ms) ────────
-subgraph RESOURCE [Resource Layer - Slot Scale 26.5 ms]
+%% ── RESOURCE  (Data Model + Slot Scale 10 ms) ──────────
+subgraph RESOURCE [Resource Layer - Slot Scale 10 ms]
     direction LR
     R1["SatPowerAllocator<br/>IWFA water-filling<br/>sum p_k <= 43 dBm"]
-    R2["SatBhTimePlan / BhSlotEntry<br/>beamPatterns and scheduledUtIds<br/>allocatedPowerDbw and frameId"]
+    R2["SatBhTimePlan / BhSlotEntry<br/>beamPatterns and scheduledUtIds<br/>allocatedPowerDbw and frameId<br/>T_s=10ms T_p=80ms M=8"]
 end
 
 %% ── EXECUTION  (existing SNS3 modules) ─────────────────
 subgraph EXEC [Execution Layer - Existing SNS3]
     direction LR
-    E1["SatBhObc<br/>beam switching<br/>IDLE / ACTIVE / SWITCHING"]
+    E1["SatBhObc<br/>beam switching<br/>IDLE / ACTIVE / SWITCHING<br/>ToggleState to GW SatNetDevice"]
     E2["SatGwCacheQueue<br/>per-beam packet buffer"]
     E3["SatBhPrecoder<br/>MMSE (cluster >= 2)"]
     E4["SatBhMetrics<br/>packet-level KPI"]
@@ -142,11 +142,12 @@ end
 %% ── CROSS-LAYER ─────────────────────────────────────────
 X1["SatL1RoutingInterface<br/>stub and Enabled=false"]
 
-%% ── MAIN FLOW ───────────────────────────────────────────
+%% ── MAIN FLOW (Phase C/D/E path) ────────────────────────
 I1 -->|PollUtStates| D1
 I2 --> K1
 I3 --> K1
-I4 -.->|Phase F demand_kbps| D1
+I4 -.->|Phase F RBDC kbps| D1
+I4 -.->|Phase F RBDC kbps| D4
 I5 -.->|Phase F CnoInfo| R1
 
 D1 --> D2
@@ -160,7 +161,12 @@ D3 -->|patternId| R2
 R1 -->|PowerMap| R2
 R1 -->|ApplyPowerCallback to SatOrbiterUserPhy| E1
 
+%% ── Phase G path ─────────────────────────────────────────
+D4 -->|GetNextConf every T_p| R2
+D4 -.->|FWD hotspot boost injection| D4
+
 R2 --> E1
+E1 -->|BuildBeamToggleMap ToggleState| E1
 E1 --> E2
 E2 --> E3
 E3 --> E4
@@ -176,10 +182,11 @@ D1 -.->|beam state| X1
 ```
 
 **Legend：**
-- `✅ Phase E` — 已接線的 SNS3 trace
-- `⚠ Phase F` — 待實作的真實輸入
-- `⚙ optional` — 選配，setup-time 靜態分配
-- `stub` — 預留介面，Enabled=false
+- `Phase E` — 已接線的 SNS3 trace（PollUtStates、BuildBeamToggleMap、ApplyPowerCallback）
+- `Phase F` — 待實作的真實 RBDC 輸入（BacklogRequestsTrace → RM + DynamicBstpProvider）
+- `Phase G` — Dynamic BSTP Provider（greedy demand-aware，輕量替代 EM Scheduler）
+- `⚙ optional` — 選配，setup-time 靜態分配（SatBeamPatternSelector）
+- `stub` — 預留介面，Enabled=false（SatL1RoutingInterface）
 
 ---
 
@@ -278,14 +285,18 @@ D1 -.->|beam state| X1
 
 ### 4.2 時間結構參數
 
-| 參數 | 符號 | 值 |
-|------|------|----|
-| Timeslot | T_slot | 26.5 ms |
-| Frame of slot | M | 19 |
-| Frame | T_frame | 503 ms |
-| Beam switching time | T_sw | 2 ms |
-| 指令傳播延遲 | T_prop | 10 ms |
-| 最多同時活躍 beam 數 | K | 2 ~ 4（basic=2，full=3，上限 4） |
+> **⚠ 2026-06 更新**：T_s、T_p、M 均已改變，舊值作廢。
+
+| 參數 | 符號 | 值（最新） | 舊值（已廢棄） |
+|------|------|----|------|
+| Timeslot | T_s | **10 ms** | 26.5 ms |
+| Slots per frame | M | **8** | 19 |
+| BHTP period | T_p = M × T_s | **80 ms** | 503 ms |
+| Beam switching dead-time | T_sw | 2 ms | 2 ms |
+| Usable slot window | T_s − T_sw | **8 ms** | 24.5 ms |
+| 指令傳播延遲 | T_prop | 10 ms | 10 ms |
+| 最多同時活躍 beam 數 | K | 3（預設） | 2~4 |
+| HOL deadline | T_max | 80 ms（= T_p） | 530 ms |
 
 ### 4.3 波束模式參數（5 種候選）
 
@@ -302,9 +313,32 @@ D1 -.->|beam state| X1
 | 參數 | 值 |
 |------|----|
 | 最低速率需求 R_min | 100 kbps |
-| 最大容許延遲 T_max | 20 × T_slot = 530 ms |
+| 最大容許延遲 T_max | **80 ms（= T_p）** |
 | 功率最佳化最大迭代次數 | 30 |
 | 波束選擇最大迭代次數 | 10 |
+
+### 4.5 Phase G 參數（Dynamic BSTP Provider）
+
+| 參數 | 預設值 | 說明 |
+|------|--------|------|
+| `bhDemandBacklogWeight` | 1.0 | 需求分數權重 [kbps] |
+| `bhFairnessWeight` | 0.5 | 公平性分數權重（time-since-served [s]） |
+| `bhValiditySuperframes` | 1 | 計畫有效期（plan window = validitySF × T_p） |
+| `bhStarvationThreshold` | 5 | 連續跳過 N 次後強制納入 beam |
+| `bhFwdHotspotBoostKbps` | 480.0 | FWD hotspot beam 合成需求加值（starlink25） |
+
+### 4.6 Starlink25 場景參數
+
+| 參數 | 值 |
+|------|----|
+| 星座 | constellation-starlink-1584-sats |
+| 衛星高度 | 550 km |
+| 目標衛星 | sat_498（Tokyo 峰值仰角 89.755°，t=4168s） |
+| Beam 佈局 | 5×5 UPA 橢圓網格，25 beams |
+| Hotspot beams | {1,4,13,19,22}（cell_idx {0,3,12,18,21}） |
+| FWD 流量比 | hotspot 600 kbps / non-hotspot 120 kbps（5:1） |
+| RTN 流量 | 均勻 CBR 100 kbps/UT（Phase F RBDC 觸發源） |
+| 有效帥選窗口 | `satIdStart`=490，`maxHelperSats`=10 |
 
 ---
 
@@ -529,7 +563,64 @@ Slot [0 ms .. 26 ms]  beams={1,4}  radius=1:SMALL,4:LARGE  modcod=5  clusters={1
 
 ---
 
-### 5.6 SatL1RoutingInterface（Layer 1 預留介面，stub）
+### 5.6 SatDynamicBstpProvider（Phase G，新增）
+
+**職責**：輕量化 demand-aware BSTP 生成器，每 T_p 產生一份 active beam 集合（Conf），取代靜態 round-robin（Phase 1）但不需要 EM 收斂（Phase 2 Scheduler）。
+
+**設計定位：**
+- Phase 1（靜態）→ **Phase G（greedy dynamic）** → Phase 2（EM Scheduler）
+- 啟用條件：`enableDynamicBstp=true` AND `enableScheduler=false`；兩者同時開啟時 Scheduler 優先
+- 需 `enableObc=true` 才能真正觸發 GW SatNetDevice link toggle
+
+**評分函數（GetNextConf 每 T_p 呼叫）：**
+```
+score(b) = W_demand × demand_b[kbps] + W_fairness × (now − lastServed_b)[s]
+```
+選 top-K 評分最高的 beam；若某 beam 連續跳過 N 次（starvationThreshold），強制納入。
+
+**需求輸入路徑：**
+```
+SatBeamScheduler::BacklogRequestsTrace (Phase F)
+  → SatBhHelper::OnBacklogRequestTrace()
+  → SatDynamicBstpProvider::UpdateBeamDemand(beamId, kbps)   ← RTN RBDC 真實需求
+  + SatBhHelper::InjectFwdDemand()（每 T_p 合成注入）
+  → UpdateBeamDemand(hotspotBeamId, +480 kbps)               ← FWD hotspot 補償
+```
+
+**FWD hotspot 合成注入的必要性：**  
+Phase F RBDC 只反映 RTN 方向需求（各 UT 約 100 kbps，均一分佈）。FWD hotspot（如 starlink25 {1,4,13,19,22}）的 600 kbps FWD 流量無法從 RBDC 感知。故額外注入 `bhFwdHotspotBoostKbps = 480 kbps` 讓 provider 正確識別 5:1 hotspot。
+
+**Conf 格式（對應 SNS3 靜態 BSTP 行格式）：**
+```cpp
+struct Conf {
+    uint32_t validityInSuperframes;  // ≥ 1
+    std::vector<uint32_t> activeBeams;  // |set| ≤ K
+};
+```
+
+**主要 API：**
+- `AddEnabledBeamInfo(beamId, userFreqId, feederFreqId, gwId)` — 注冊可用 beam
+- `UpdateBeamDemand(beamId, kbps)` — 更新需求估計（Phase F / 合成注入）
+- `UpdateBeamBacklog(beamId, bytes)` — 更新佇列深度（選用）
+- `GetNextConf(now) → Conf` — 每 T_p 產生一份配置（核心方法）
+- `ValidateConf(conf)` — 驗證是否合法（SatBhHelper 轉換前呼叫）
+
+**ConfToTimePlan 轉換邏輯（SatBhHelper）：**
+```
+Conf.activeBeams → 分散到 M=8 個 slot，每 slot 至多 K 個 beam（round-robin 排列）
+validity × T_p → periodEnd
+→ SatBhTimePlan（送 SatBhObc）
+```
+
+**主要 Attributes（TypeId）：**
+- `DemandBacklogWeight` : double, 預設 1.0
+- `FairnessWeight` : double, 預設 0.5
+- `ValidityInSuperframes` : uint32_t, 預設 1
+- `StarvationThreshold` : uint32_t, 預設 5
+
+---
+
+### 5.8 SatL1RoutingInterface（Layer 1 預留介面，stub）
 
 **職責**：Layer 2 與 Layer 1 ISL Routing 的橋接介面，目前為 stub 實作。
 
@@ -546,7 +637,7 @@ Slot [0 ms .. 26 ms]  beams={1,4}  radius=1:SMALL,4:LARGE  modcod=5  clusters={1
 
 ---
 
-### 5.7 SatBhKpiLogger（新增，Phase E）
+### 5.9 SatBhKpiLogger（新增，Phase E）
 
 **職責**：Frame-level KPI 統一觀測點，補足 `SatBhMetrics`（packet-level beam KPI）無法覆蓋的 5 個核心指標。由 `SatResourceManager` 持有，每 503 ms flush 一行 CSV。
 
@@ -604,7 +695,7 @@ Config::ConnectWithoutContext(
 
 ---
 
-### 5.8 既有模組（保留，不改動）
+### 5.10 既有模組（保留，不改動）
 
 | 模組 | 職責 | 狀態 |
 |------|------|------|
@@ -689,9 +780,51 @@ Config::ConnectWithoutContext(
 
 ---
 
-### Phase F — 真實需求輸入（待實作）
-- `PollUtStates()`：目前使用合成需求 1000 kbps，Phase F 接 `SatGwMac` DAMA 請求佇列 trace
-- `SatResourceManager` channelGains：目前為 1.0，Phase F 接 `SatPhy::CnoInfo` trace
+### Phase F — 真實 RBDC 需求輸入（⏳ 進行中）
+
+**目的**：以真實 DAMA 上行需求取代合成 1000 kbps stub，讓 RM 與 Dynamic Provider 感知真實流量。
+
+**啟用條件**：`enablePhaseF=true`（需先啟用 `enablePhaseE`）
+
+**實作步驟：**
+1. `Config::SetDefault("ns3::SatLowerLayerServiceConf::DaService3_RbdcAllowed", true)` — 開啟 RBDC（CRA 關閉），在 `CreateSatScenario()` 前設定
+2. `ConnectTracesPhaseF()` — 對每個 beamId 的 `SatBeamScheduler` 連接 `BacklogRequestsTrace`
+3. `OnBacklogRequestTrace(record)` — 解析 `"time, beamId, utId, typeEnum, value"` 字串，只保留 `DA_RBDC` 類型，更新 `m_utDemandCache`
+4. `PollUtStates()` — 當 Phase F 啟用時，從 `m_utDemandCache` 讀取真實 RBDC 而非 1000 kbps stub
+5. `RunDynamicBstpCycle()` — 同步呼叫 `DynamicBstpProvider::UpdateBeamDemand()`，以真實 RBDC 驅動 greedy scoring
+
+**待實作**：
+- `SatPhy::CnoInfo` trace 接線（真實 channelGains → SatPowerAllocator）
+
+---
+
+### Phase G — Dynamic BSTP Provider（✅ 架構完成）
+
+**目的**：提供比靜態 BHTP（Phase 1）更智慧、比 EM Scheduler（Phase 2）更輕量的動態波束排程基準。
+
+**啟用條件**：`enableDynamicBstp=true` AND `enableObc=true`（`enableScheduler` 應為 false）
+
+**實作步驟：**
+1. `SetupDynamicBstp()` — 建立 `SatDynamicBstpProvider` 實例，從 SatTopology 注冊所有 beam，設定 Attributes
+2. `RunDynamicBstpCycle(now)` — 每 T_p 呼叫一次：
+   a. `provider->GetNextConf(now)` → Conf
+   b. `ConfToTimePlan(conf, periodStart)` → SatBhTimePlan
+   c. `obc->ReceiveNewPlan(plan, T_prop)` → 實際 beam toggle
+3. `InjectFwdDemand()` — 每 T_p 注入合成 FWD hotspot 需求（starlink25 場景補償 RBDC 無法感知 FWD 不對稱）
+4. Phase F 啟用時：`OnBacklogRequestTrace()` 同時呼叫 `provider->UpdateBeamDemand()`
+
+**驗證測試指令（starlink25 + Dynamic BSTP）：**
+```bash
+./ns3 run "sat-bh-example --scenario=starlink25 \
+                          --enableObc=1 --enableDynamicBstp=1 \
+                          --maxActiveBeams=4 --simTime=60"
+
+# Phase G + real RBDC demand:
+./ns3 run "sat-bh-example --scenario=starlink25 \
+                          --enableObc=1 --enableDynamicBstp=1 \
+                          --enablePhaseE=1 --enablePhaseF=1 \
+                          --maxActiveBeams=2 --simTime=120"
+```
 
 ---
 
@@ -757,14 +890,26 @@ Slot [0 ms .. 26 ms]  beams={1,4}  radius=1:SMALL,4:LARGE  modcod=5  clusters={1
 
 ## 9. 模擬情境
 
-| 情境 | BH | Pattern Sel | User Scheduling | Power Alloc | 目的 |
-|------|----|:-----------:|:---------------:|:-----------:|------|
-| Baseline | ❌ | ❌ | ❌ | Equal | 參考基準 |
-| BH-only | ✅ | ❌ | ❌ | Equal | 驗證現有 BH 核心 |
-| BH + QoS | ✅ | ✅ | ✅ | Equal | 驗證排程 QoS 效益 |
-| Full System | ✅ | ✅ | ✅ | ✅ | 完整系統效能評估 |
+### 9.1 iridium-next / leo2sat 情境
 
-每個情境：模擬 300 秒，去除前 10 秒 warm-up，輸出 CSV 至 `Outputs/`。
+| 情境 | BH | Dynamic BSTP | Pattern Sel | User Scheduling | Power Alloc | 目的 |
+|------|----|:---:|:-----------:|:---------------:|:-----------:|------|
+| Baseline | ❌ | ❌ | ❌ | ❌ | Equal | 參考基準 |
+| BH-only (Static) | ✅ | ❌ | ❌ | ❌ | Equal | 驗證現有 BH 核心 |
+| BH + Dynamic (Phase G) | ✅ | ✅ | ❌ | ❌ | Equal | Dynamic BSTP 效益 |
+| BH + QoS | ✅ | ❌ | ✅ | ✅ | Equal | 驗證排程 QoS 效益 |
+| Full System | ✅ | ✅ | ✅ | ✅ | ✅ | 完整系統效能評估 |
+
+### 9.2 starlink25 情境（Phase G 主場景）
+
+| 情境 | 說明 | 指令摘要 |
+|------|------|---------|
+| Greedy Baseline | 靜態 BHTP，無動態排程 | `--scenario=starlink25 --enableObc=1` |
+| Dynamic-BH (Phase G) | Greedy top-K，合成 FWD demand | `--enableDynamicBstp=1 --maxActiveBeams=4` |
+| Dynamic-BH + Phase F | 真實 RBDC 需求灌入 | `+--enablePhaseE=1 --enablePhaseF=1` |
+| Full: Phase E+F+G | RM + 真實 RBDC + Dynamic BH | `+--enableResourceManager=1` |
+
+每個情境：模擬 300 s（iridium-next）/ 120 s（starlink25），warm-up 10 s，輸出 CSV 至 `Outputs/`。
 
 ---
 
@@ -787,18 +932,20 @@ Slot [0 ms .. 26 ms]  beams={1,4}  radius=1:SMALL,4:LARGE  modcod=5  clusters={1
 | 檔案 | 模組 | Phase | 狀態 |
 |------|------|-------|------|
 | `sat-user-associator.h/.cc` | SatUserAssociator（WFQ/Priority/RR + MoveUtBetweenBeams） | C | ✅ |
-| `sat-bh-resource-manager.h/.cc` | SatResourceManager（503 ms self-scheduling loop） | C | ✅ |
+| `sat-bh-resource-manager.h/.cc` | SatResourceManager（80 ms self-scheduling loop） | C | ✅ |
 | `sat-power-allocator.h/.cc` | SatPowerAllocator（IWFA water-filling） | D | ✅ |
 | `sat-l1-routing-interface.h/.cc` | SatL1RoutingInterface（stub） | B | ✅ |
+| `sat-dynamic-bstp-provider.h` | SatDynamicBstpProvider（greedy top-K abstract base） | G | ✅ |
 | `sat-bh-kpi-logger.h/.cc` | SatBhKpiLogger（frame-level 5 KPI CSV） | E | 設計完成，待實作 |
 | `sat-beam-pattern-selector.h/.cc` | SatBeamPatternSelector（setup-time 靜態選配） | C | 選配，延後 |
+| `sat-constellation-params.h` | ConstellationParams（高度/beam幾何計算，starlink25） | G | ✅ |
 
 ### 已修改檔案
 
 | 檔案 | 變更內容 | 狀態 |
 |------|---------|------|
 | `sat-bh-time-plan.h/.cc` | BhSlotEntry 擴充：per-beam `beamPatterns`、`scheduledUtIds`、`allocatedPowerDbw`；SatBhTimePlan 加 `frameId` | ✅ |
-| `sat-bh-helper.h/.cc` | Phase C/D/E 模組安裝、feature flags、`ConnectTracesPhaseE()`、`PollUtStates()` | ✅ |
+| `sat-bh-helper.h/.cc` | Phase C/D/E/F/G 模組安裝、feature flags、`ConnectTracesPhaseE/F()`、`SetupDynamicBstp()`、`RunDynamicBstpCycle()`、`InjectFwdDemand()`、`BuildBeamToggleMap()` | ✅ |
 | `sat-bh-scheduler.cc` | `BuildPlan()` 改用 per-beam `SetBeamPattern()` | ✅ |
 | `sat-bh-example.cc` | Phase C/D/E CLI args、`SetSimulationHelper()` | ✅ |
 

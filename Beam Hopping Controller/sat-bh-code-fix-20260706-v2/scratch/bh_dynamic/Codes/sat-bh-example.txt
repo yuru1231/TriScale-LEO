@@ -1,0 +1,70 @@
+# sat-bh-example input config
+# Format: key=value. Comments may use # or //.
+
+# Scenario / topology
+scenario=constellation-starlink-1584-sats
+satId=0
+helperSatList=
+satIdStart=490
+maxHelperSats=10
+
+# Time
+simTime=20
+numPeriods=0
+warmUp=10
+slotMs=10
+periodMs=80
+switchMs=2
+propMs=10
+
+# Beam hopping / scheduling
+numBeams=7
+maxActiveBeams=2
+numHotspot=3
+alpha=2
+kappa=0.08
+enableScheduler=0
+enableObc=0
+enableDynamicBstp=0
+bhDemandWeight=1
+bhFairnessWeight=0.5
+bhValiditySF=1
+bhStarvationThr=5
+
+# Traffic / demand
+enableFwdOfferedDemand=0
+fwdOfferedDemandKbps=0
+
+# Phase switches
+enableCacheQueue=0
+enablePrecoder=0
+enableResourceManager=0
+enableUserAssociation=1
+enablePowerAllocation=0
+enablePhaseE=0
+enablePhaseF=0
+
+# Resource manager
+schedulingMode=0
+maxReassignment=5
+
+# RF / power
+totalPowerDbm=43
+noisePowerDbw=-126.47
+powerMaxIter=30
+powerEps=0.001
+interferenceFactor=0.01
+
+# Location / ROI / geometry
+roiLat=35.676
+roiLon=139.650
+roiRadius=5
+minElevDeg=37
+altitudeKm=550
+beamHalfAngle=2
+
+# Output
+metricsFile=bh-metrics.csv
+timePlanFile=bh-timeplan.csv
+trafficTraceFile=sat-bh-traffic.tr
+outputDir=

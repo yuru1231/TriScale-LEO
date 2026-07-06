@@ -193,9 +193,25 @@ SatGreedyBstpProvider::GetNextConf(Time now)
             candidates.push_back(kv.first);
     }
 
-    // Trim forced list to at most K beams (shouldn't happen in practice)
+    // Trim forced list to at most K beams.  Multiple beams can become starved
+    // in the same cycle; choosing the first K beam IDs would permanently bias
+    // service toward low-numbered beams.  Prefer the beams that have waited the
+    // longest, then the oldest service time, with beam ID only as a stable tie-break.
     if (forced.size() > m_maxActiveBeams)
+    {
+        std::sort(forced.begin(),
+                  forced.end(),
+                  [&](uint32_t a, uint32_t b) {
+                      const BeamState& ba = m_beams.at(a);
+                      const BeamState& bb = m_beams.at(b);
+                      if (ba.starvationCount != bb.starvationCount)
+                          return ba.starvationCount > bb.starvationCount;
+                      if (ba.lastServedTime != bb.lastServedTime)
+                          return ba.lastServedTime < bb.lastServedTime;
+                      return a < b;
+                  });
         forced.resize(m_maxActiveBeams);
+    }
 
     // ── Phase 2: score remaining candidates ───────────────────────────────
 

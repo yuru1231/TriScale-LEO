@@ -96,12 +96,48 @@
 #include "ns3/satellite-module.h"
 #include "ns3/traffic-module.h"
 
+#include "ns3/packet-sink.h"   // Phase F PDR: DynamicCast<PacketSink> + GetTotalRx()
+
 #include <ctime>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 
 using namespace ns3;
+
+// ── Phase F FWD PDR tracker ───────────────────────────────────────────────
+//
+// Per-beam accumulator keyed by UT index (0..24 for starlink25).
+// beamId = utIdx + 1 (starlink25 ordering guarantee: UT i serves beam i+1).
+// FwdRxTrace is wired to PacketSink::Rx on each UT user node in Step 3.5.
+// PDR is printed at Step 9 from accumulated rxBytes vs. offered bytes.
+
+struct BeamPdrEntry
+{
+    uint32_t beamId{0};
+    uint64_t rxBytes{0};   ///< bytes received at UT PacketSink (FWD)
+};
+
+static std::vector<BeamPdrEntry> g_beamPdr;         ///< size == num UTs
+static Ptr<OutputStreamWrapper>  g_fwdAsciiStream;  ///< sat-bh-phaseF-fwd.tr
+
+/// Callback: fired by PacketSink::Rx on UT user node i.
+/// Writes one ASCII line (mimics AsciiTraceHelper format) and accumulates bytes.
+static void
+FwdRxTrace(uint32_t utIdx, Ptr<const Packet> pkt, const Address& /*from*/)
+{
+    if (utIdx < g_beamPdr.size())
+        g_beamPdr[utIdx].rxBytes += pkt->GetSize();
+    // ASCII line: "time  r  path  bytes=N  beam=B"
+    *g_fwdAsciiStream->GetStream()
+        << std::fixed << std::setprecision(6)
+        << Simulator::Now().GetSeconds()
+        << "\tr"
+        << "\t/NodeList/UT" << utIdx << "/App/PacketSink/Rx"
+        << "\tbytes=" << pkt->GetSize()
+        << "\tbeam=" << (utIdx < g_beamPdr.size() ? g_beamPdr[utIdx].beamId : 0u)
+        << "\n";
+}
 
 NS_LOG_COMPONENT_DEFINE("sat-bh-example");
 
@@ -229,6 +265,9 @@ ParseConfig(int argc, char* argv[], std::string& scenario, uint32_t& numSats)
     // ── Output ────────────────────────────────────────────────────────────
     cmd.AddValue("metricsFile",  "KPI CSV output file",       cfg.metricsOutputFile);
     cmd.AddValue("timePlanFile", "BHTP slot table CSV file",  cfg.timePlanCsvFile);
+    cmd.AddValue("trafficTraceFile",
+                 "BH real demand / plan / OBC event trace file",
+                 cfg.trafficTraceFile);
 
     cmd.Parse(argc, argv);
     cfg.schedulingMode = static_cast<uint8_t>(schedulingModeArg);
@@ -391,32 +430,11 @@ main(int argc, char* argv[])
         cfg.maxActiveBeams = std::min(cfg.maxActiveBeams, 25u);
 
         // Default 5 hotspot beams (cell_idx {0,3,12,18,21} = beamId {1,4,13,19,22})
-        if (cfg.numHotspotBeams == 0 || cfg.numHotspotBeams > 25)
-            cfg.numHotspotBeams = 5;
-
-        // Phase 1 fixed hot cells — 0-indexed cell positions in the 5×5 grid.
-        // cell_idx 2 (row0-mid), 10 (row2-left), 12 (centre), 18 (row3-right), 21 (row4-left)
-        // → beamId 3, 11, 13, 19, 22.  K_b=2: each slot pairs 1 hotspot + 1 non-hotspot.
-        // Only set when not already overridden from the command line.
-        if (cfg.hotCellIndices.empty())
-            cfg.hotCellIndices = {2, 10, 12, 18, 21};
-
-        // Synthetic FWD demand injection for Phase G greedy provider.
-        //
-        // Phase F RBDC (RTN demand) is uniform across all UTs (~100 kbps each),
-        // so the greedy provider cannot distinguish the FWD 5:1 hotspot ratio
-        // from RBDC alone.  Here we inject a synthetic demand boost for the true
-        // traffic hotspot beams {1,4,13,19,22} when Phase G is active.
-        //
-        // Boost = FWD hotspot rate − FWD baseline = 600 − 120 = 480 kbps.
-        // Provider sees: hotspot beams ≈ 580 kbps (480 boost + ~100 RBDC),
-        //                non-hotspot   ≈ 100 kbps (RBDC only).
-        // → 5.8:1 demand ratio, matching the intended traffic asymmetry.
-        if (cfg.enableDynamicBstp)
-        {
-            cfg.bhFwdHotspotBeamIds   = {1, 4, 13, 19, 22};
-            cfg.bhFwdHotspotBoostKbps = 480.0;
-        }
+        // Phase F uniform load — no hotspot differentiation.
+        // All 25 beams carry equal 20 Mbps FWD demand (configured in Step 3).
+        // hotCellIndices and bhFwdHotspotBeamIds remain empty so Phase G
+        // DynamicBstp sees uniform RBDC → natural round-robin beam selection.
+        cfg.numHotspotBeams = 0;
 
         SatHelper::BeamUserInfoMap_t beamInfo;
         for (uint32_t i = 0; i < 25; ++i)
@@ -468,22 +486,36 @@ main(int argc, char* argv[])
     // Config::SetDefault must be called before CreateSatScenario().
     if (cfg.enablePhaseF)
     {
-        Config::SetDefault("ns3::SatLowerLayerServiceConf::DaService3_ConstantAssignmentProvided",
-                           BooleanValue(false));
-        Config::SetDefault("ns3::SatLowerLayerServiceConf::DaService3_RbdcAllowed",
-                           BooleanValue(true));
-        Config::SetDefault("ns3::SatLowerLayerServiceConf::DaService3_MinimumServiceRate",
-                           UintegerValue(10));
-        Config::SetDefault("ns3::SatLowerLayerServiceConf::DaService3_MaximumServiceRate",
-                           UintegerValue(500));
-        Config::SetDefault("ns3::SatLowerLayerServiceConf::DaService3_VolumeAllowed",
-                           BooleanValue(false));
+        // Enable RBDC on ALL DaService classes (0-3) to ensure the RTN CBR traffic's
+        // actual QoS class (typically DaService0 for UDP default priority) generates
+        // non-zero RBDC capacity requests. Setting only DaService3 while traffic maps
+        // to DaService0 causes BacklogRequestsTrace to always report 0 kbps.
+        //
+        // MinimumServiceRate=0: removes the CRA floor so ALL demand appears as RBDC
+        // backlog in BacklogRequestsTrace. A non-zero minimum would absorb demand up to
+        // the minimum rate without generating RBDC CRs (causing demand_kbps=0 in trace).
+        for (uint32_t svc = 0; svc <= 3; ++svc)
+        {
+            std::string pfx = "ns3::SatLowerLayerServiceConf::DaService"
+                              + std::to_string(svc) + "_";
+            Config::SetDefault(pfx + "ConstantAssignmentProvided", BooleanValue(false));
+            Config::SetDefault(pfx + "RbdcAllowed",                BooleanValue(true));
+            Config::SetDefault(pfx + "MinimumServiceRate",         UintegerValue(0));
+            Config::SetDefault(pfx + "MaximumServiceRate",         UintegerValue(2000));
+            Config::SetDefault(pfx + "VolumeAllowed",              BooleanValue(false));
+        }
+
+        // Control slot interval = T_p (80 ms) to get one RBDC update per BH period.
+        // Smaller interval → finer demand resolution for DynamicBstp scoring.
+        // Default SNS3 value is 1s — too coarse for 80 ms BH scheduling.
         Config::SetDefault("ns3::SatBeamScheduler::ControlSlotsEnabled",
                            BooleanValue(true));
         Config::SetDefault("ns3::SatBeamScheduler::ControlSlotInterval",
-                           TimeValue(Seconds(1)));
-        NS_LOG_INFO("[PhaseF] RBDC enabled: DaService3 CRA=off, RBDC=on,"
-                    " MinRate=10kbps, MaxRate=500kbps, VBDC=off, control slots=1s");
+                           TimeValue(MilliSeconds(static_cast<uint32_t>(cfg.bhtpPeriodMs))));
+
+        NS_LOG_INFO("[PhaseF] RBDC enabled on DaService0-3:"
+                    " CRA=off, RBDC=on, MinRate=0kbps, MaxRate=2000kbps, VBDC=off"
+                    " control slots every " << cfg.bhtpPeriodMs << "ms (= T_p)");
     }
 
     // ── OBC real-toggle mode: disable SNS3 static BSTP controller to prevent two controllers
@@ -541,60 +573,25 @@ main(int argc, char* argv[])
 
         if (scenario == "starlink25")
         {
-            // Hotspot beamIds: cell_idx {0,3,12,18,21} + 1 → {1,4,13,19,22}
-            // UT ordering assumption: GetUtNodes()[i] serves beamId i+1.
-            // This holds when CreateSatScenario allocates exactly 1 UT per beam in order.
-            // Verify at runtime: check that UT count == 25 (asserted in Step 2.5 above).
-            const std::set<uint32_t> kHotspotBeams = {1, 4, 13, 19, 22};
+            // Phase F uniform load: 20 Mbps FWD per UT, no hotspot differentiation.
+            // 1500 bytes / 600 μs = 20.000 Mbps per UT.
+            // Phase G DynamicBstp receives uniform RBDC → round-robin beam selection.
+            simHelper->GetTrafficHelper()->AddCbrTraffic(
+                SatTrafficHelper::FWD_LINK, SatTrafficHelper::UDP,
+                MicroSeconds(600), 1500,
+                gwUserNode0, allUtUsers,
+                Seconds(cfg.warmUpSec), Seconds(cfg.simTimeSec), Seconds(0));
 
-            NodeContainer hotUtUsers, coldUtUsers;
-            for (uint32_t i = 0; i < 25 && i < allUts.GetN(); ++i)
-            {
-                uint32_t beamId = i + 1; // cell_idx i → beamId i+1
-                NodeContainer singleUt;
-                singleUt.Add(allUts.Get(i));
-                NodeContainer users =
-                    Singleton<SatTopology>::Get()->GetUtUserNodes(singleUt);
-                for (uint32_t j = 0; j < users.GetN(); ++j)
-                {
-                    if (kHotspotBeams.count(beamId))
-                        hotUtUsers.Add(users.Get(j));
-                    else
-                        coldUtUsers.Add(users.Get(j));
-                }
-            }
-
-            // FWD hotspot: 600 kbps/UT  (5× demand signal for Phase G)
-            if (hotUtUsers.GetN() > 0)
-            {
-                simHelper->GetTrafficHelper()->AddCbrTraffic(
-                    SatTrafficHelper::FWD_LINK, SatTrafficHelper::UDP,
-                    MilliSeconds(20), 1500,
-                    gwUserNode0, hotUtUsers,
-                    Seconds(cfg.warmUpSec), Seconds(cfg.simTimeSec), Seconds(0));
-            }
-
-            // FWD non-hotspot: 120 kbps/UT  (1× baseline demand)
-            if (coldUtUsers.GetN() > 0)
-            {
-                simHelper->GetTrafficHelper()->AddCbrTraffic(
-                    SatTrafficHelper::FWD_LINK, SatTrafficHelper::UDP,
-                    MilliSeconds(100), 1500,
-                    gwUserNode0, coldUtUsers,
-                    Seconds(cfg.warmUpSec), Seconds(cfg.simTimeSec), Seconds(0));
-            }
-
-            // RTN baseline CBR (symmetric; Phase F step 4b adds RBDC demand on top)
+            // RTN baseline CBR (Phase F Step 4b adds +100 kbps RBDC demand on top)
             simHelper->GetTrafficHelper()->AddCbrTraffic(
                 SatTrafficHelper::RTN_LINK, SatTrafficHelper::UDP,
                 MilliSeconds(100), 512,
                 gwUserNode0, allUtUsers,
                 Seconds(cfg.warmUpSec), Seconds(cfg.simTimeSec), Seconds(0));
 
-            NS_LOG_INFO("[starlink25] FWD traffic:"
-                        << " hotspot=" << hotUtUsers.GetN() << " UTs@600kbps"
-                        << " nonHotspot=" << coldUtUsers.GetN() << " UTs@120kbps"
-                        << " RTN=" << allUtUsers.GetN() << " UTs@~41kbps");
+            NS_LOG_INFO("[starlink25/PhaseF] FWD uniform 20 Mbps x "
+                        << allUtUsers.GetN() << " UTs"
+                        << "  RTN baseline ~41 kbps x " << allUtUsers.GetN() << " UTs");
         }
         else
         {
@@ -611,6 +608,61 @@ main(int argc, char* argv[])
                 gwUserNode0, allUtUsers,
                 Seconds(cfg.warmUpSec), Seconds(cfg.simTimeSec), Seconds(0));
         }
+    }
+
+    // ── Step 3.5: FWD PDR tracking + ASCII trace (starlink25 + Phase F) ─────
+    //
+    // Opens sat-bh-phaseF-fwd.tr (AsciiTraceHelper stream) and wires
+    // PacketSink::Rx on each UT user node so every received FWD packet
+    // writes one ASCII line:  "time  r  /NodeList/UTi/...  bytes=N  beam=B"
+    //
+    // Ordering invariant: GetUtUserNodes()[i] corresponds to beamId = i+1.
+    // This holds when starlink25 CreateSatScenario places exactly 1 UT per beam
+    // in ascending beamId order (asserted in Step 2.5: utNodes.GetN()==25).
+    //
+    // PacketSink is installed by SatTrafficHelper::AddCbrTraffic (FWD sink at
+    // UT user nodes).  We find it via DynamicCast<PacketSink> on each node's
+    // application list.  If the cast fails (SNS3 uses a subclass), hooked count
+    // will be 0 and a WARN is emitted — PDR table will show 0 bytes.
+    if (scenario == "starlink25")
+    {
+        AsciiTraceHelper ascii;
+        g_fwdAsciiStream = ascii.CreateFileStream("sat-bh-phaseF-fwd.tr");
+        *g_fwdAsciiStream->GetStream()
+            << "# Phase F FWD PDR trace  scenario=starlink25  K="
+            << cfg.maxActiveBeams << "  offered=20Mbps/UT\n"
+            << "# columns: time[s]  event  path  bytes=N  beam=B\n";
+
+        NodeContainer utUserAll = Singleton<SatTopology>::Get()->GetUtUserNodes();
+        g_beamPdr.resize(utUserAll.GetN());
+
+        uint32_t hooked{0};
+        for (uint32_t i = 0; i < utUserAll.GetN() && i < 25; ++i)
+        {
+            g_beamPdr[i].beamId = i + 1;
+            Ptr<Node> utUser = utUserAll.Get(i);
+            for (uint32_t j = 0; j < utUser->GetNApplications(); ++j)
+            {
+                Ptr<PacketSink> sink =
+                    DynamicCast<PacketSink>(utUser->GetApplication(j));
+                if (sink)
+                {
+                    // Bind utIdx so FwdRxTrace can index g_beamPdr correctly
+                    sink->TraceConnectWithoutContext(
+                        "Rx", MakeBoundCallback(&FwdRxTrace, i));
+                    ++hooked;
+                    break;
+                }
+            }
+        }
+
+        if (hooked == 0)
+            NS_LOG_WARN("[PhaseF/PDR] No PacketSink found on UT user nodes"
+                        " — PDR table will show 0 bytes."
+                        " SatTrafficHelper may use a non-PacketSink app.");
+        else
+            NS_LOG_INFO("[PhaseF/PDR] ASCII trace -> sat-bh-phaseF-fwd.tr"
+                        "  hooked=" << hooked << "/" << utUserAll.GetN() << " UTs");
     }
 
     // ── Step 4: BH system installation ───────────────────────────────────
@@ -643,6 +695,7 @@ main(int argc, char* argv[])
         };
         cfg.metricsOutputFile = stripExt(cfg.metricsOutputFile) + "_" + runTag + ".csv";
         cfg.timePlanCsvFile   = stripExt(cfg.timePlanCsvFile)   + "_" + runTag + ".csv";
+        cfg.trafficTraceFile  = stripExt(cfg.trafficTraceFile)  + "_" + runTag + ".tr";
     }
 
     std::string base = cfg.metricsOutputFile;  // already has extension
@@ -724,6 +777,10 @@ main(int argc, char* argv[])
     stats->AddPerBeamBeamServiceTime(SatStatsHelper::OUTPUT_SCALAR_FILE);
     stats->AddPerSatFwdAppThroughput(SatStatsHelper::OUTPUT_SCATTER_FILE);
     stats->AddPerSatRtnAppThroughput(SatStatsHelper::OUTPUT_SCATTER_FILE);
+    // Phase F PDR: per-UT FWD throughput (cross-check vs. g_beamPdr rxBytes)
+    // PER complements PDR: PDR = 1 − PER (per-beam scalar output)
+    stats->AddPerUtFwdAppThroughput(SatStatsHelper::OUTPUT_SCATTER_FILE);
+    stats->AddPerBeamFwdUserDaPacketError(SatStatsHelper::OUTPUT_SCALAR_FILE);
 
     // ── Step 6: save attributes snapshot ──────────────────────────────────
     Config::SetDefault("ns3::ConfigStore::Filename",   StringValue("bh-attributes.xml"));
@@ -774,8 +831,56 @@ main(int argc, char* argv[])
     std::cout << "\n[BH Example] Simulation complete.\n"
               << "  KPI metrics  : " << cfg.metricsOutputFile  << "\n"
               << "  BHTP table   : " << cfg.timePlanCsvFile    << "\n"
+              << "  BH traffic   : " << cfg.trafficTraceFile   << "\n"
               << "  SNS3 stats   : data/\n"
               << "  Attributes   : bh-attributes.xml\n\n";
+
+    // ── Step 9b: Phase F FWD per-beam PDR table ────────────────────────────
+    //
+    // offeredBytes = 20 Mbps × measuredSec (warmup already excluded: traffic
+    // starts at warmUpSec, so GetTotalRx() only counts post-warmup bytes).
+    // PDR per beam = rxBytes / offeredBytes × 100.
+    // If PDR > 100% it means the link completed more bytes than the offered
+    // nominal (e.g., retransmissions or timer artefacts) — clamped to 100%.
+    if (scenario == "starlink25" && !g_beamPdr.empty())
+    {
+        const double measuredSec       = cfg.simTimeSec - cfg.warmUpSec;
+        const double offeredBytesPerUT = (20.0e6 / 8.0) * measuredSec; // bytes
+
+        std::cout << "[PhaseF] FWD Per-Beam PDR"
+                  << "  offered=20 Mbps/UT  K=" << cfg.maxActiveBeams
+                  << "  measured=" << measuredSec << "s\n"
+                  << std::left
+                  << std::setw(8)  << "BeamID"
+                  << std::setw(14) << "RxBytes"
+                  << std::setw(14) << "OfferedMB"
+                  << "PDR[%]\n"
+                  << std::string(46, '-') << "\n";
+
+        double totalRx{0.0}, totalOff{0.0};
+        for (const auto& e : g_beamPdr)
+        {
+            double pdr = (offeredBytesPerUT > 0.0)
+                         ? std::min(100.0, e.rxBytes / offeredBytesPerUT * 100.0)
+                         : 0.0;
+            std::cout << std::setw(8)  << e.beamId
+                      << std::setw(14) << e.rxBytes
+                      << std::setw(14) << std::fixed << std::setprecision(2)
+                                       << (offeredBytesPerUT / 1.0e6)
+                      << std::fixed << std::setprecision(1) << pdr << "%\n";
+            totalRx  += static_cast<double>(e.rxBytes);
+            totalOff += offeredBytesPerUT;
+        }
+        double globalPdr = (totalOff > 0.0)
+                           ? std::min(100.0, totalRx / totalOff * 100.0)
+                           : 0.0;
+        std::cout << std::string(46, '-') << "\n"
+                  << "  Global FWD PDR : "
+                  << std::fixed << std::setprecision(1) << globalPdr << "%\n"
+                  << "  Trace file     : sat-bh-phaseF-fwd.tr\n"
+                  << "  SNS3 cross-ref : data/*fwd-app-throughput*  "
+                     "data/*fwd-packet-error*\n\n";
+    }
 
     return 0;
 }
